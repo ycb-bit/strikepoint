@@ -4,6 +4,7 @@
 // so the local trust model can later graduate to server validation.
 
 import { loadProfile, saveProfile } from './profile.js';
+import { OUTFITS, OUTFIT_IDS } from '../shared/outfits.js';
 
 // ---------- catalog ----------
 // Operator skins: body + accent colors (also used for the preview swatch).
@@ -40,8 +41,33 @@ export const NAME_COLORS = [
 ];
 
 export function itemById(kind, id) {
-  const list = kind === 'skin' ? OP_SKINS : kind === 'weapon' ? WEAPON_SKINS : NAME_COLORS;
-  return list.find(i => i.id === id) || null;
+  const list = kind === 'skin' ? OP_SKINS : kind === 'weapon' ? WEAPON_SKINS : kind === 'name' ? NAME_COLORS : null;
+  return list ? list.find(i => i.id === id) || null : null;
+}
+
+// ---------- outfits (structural clothing) ----------
+export function ownedOutfits() {
+  const p = loadProfile();
+  return p.ownedOutfits || ['assault'];
+}
+export function equippedOutfit() { return loadProfile().eqOutfit || 'assault'; }
+export function equipOutfit(id) {
+  if (!OUTFIT_IDS.includes(id)) return;
+  const p = loadProfile();
+  p.eqOutfit = id;
+  saveProfile(p);
+}
+export function purchaseOutfit(id) {
+  const o = OUTFITS[id];
+  if (!o || !o.price) return { ok: false, why: 'Not for sale' };
+  const p = loadProfile();
+  p.ownedOutfits = p.ownedOutfits || ['assault'];
+  if (p.ownedOutfits.includes(id)) return { ok: false, why: 'Already owned' };
+  if ((p.credits || 0) < o.price) return { ok: false, why: `Need ${o.price - (p.credits || 0)} more ⚡` };
+  p.credits -= o.price;
+  p.ownedOutfits.push(id);
+  saveProfile(p);
+  return { ok: true };
 }
 
 // ---------- owned inventory + loadout (persisted in profile) ----------

@@ -54,5 +54,6 @@ export function skinMaterials(id, teamBodyMat) {
       accent: new (teamBodyMat.constructor)({ color: s.accent, emissive: glow(s.accent, 0.18) }),
     });
   }
-  return matCache.get(key);
+  const sm = matCache.get(key);
+  return { ...sm, outfit: s.id };   // .outfit carries the matching outfit id (Arctic skin -> Arctic Ops clothes)
 }

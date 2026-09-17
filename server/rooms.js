@@ -20,6 +20,13 @@ function ammoText(p) {
   return am ? `${am.mag}/${am.reserve}` : '';
 }
 
+// cheap stable string hash (bot outfit variety)
+function hashId(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+
 function makeCode() {
   let c;
   do { c = String(1000 + Math.floor(Math.random() * 9000)); } while (rooms.has(c));
@@ -124,7 +131,7 @@ export class Room {
 
   addHuman(client, name) {
     const clientId = client.id;
-    this.clients.set(clientId, { send: client.send, sendRaw: client.sendRaw, name: name || client.name || 'Player', raw: client, skin: client.skin || 'default', wfin: client.wfin || 'stock', ncolor: client.ncolor || 'none' });
+    this.clients.set(clientId, { send: client.send, sendRaw: client.sendRaw, name: name || client.name || 'Player', raw: client, skin: client.skin || 'default', wfin: client.wfin || 'stock', ncolor: client.ncolor || 'none', outfit: client.outfit || 'assault' });
     const g = this.game;
     // reconnect: if the sim still holds this player (seat held after a drop),
     // the same client id resumes it — clear the pending removal timer
@@ -156,7 +163,7 @@ export class Room {
   announceCosmetics(clientId) {
     const c = this.clients.get(clientId);
     if (!c) return;
-    this.nextSnap = 0;   // broadcast immediately with fresh wf/nc fields
+    this.nextSnap = 0;   // broadcast immediately with fresh wf/nc/of fields
   }
 
   // keep a disconnected human's slot (and body) for `ms` so a refresh can resume
@@ -251,6 +258,8 @@ export class Room {
         sk: !p.bot ? (this.clients.get(p.id)?.skin || 'default') : 'default',
         wf: !p.bot ? (this.clients.get(p.id)?.wfin || 'stock') : 'stock',
         nc: !p.bot ? (this.clients.get(p.id)?.ncolor || 'none') : 'none',
+        of: !p.bot ? (this.clients.get(p.id)?.outfit || 'assault')
+          : ['assault', 'scout', 'sas', 'ghost', 'raptor'][Math.abs(hashId(p.id)) % 5],   // bots wear varied gear
         al: p.alive ? 1 : 0, w: p.weapons.primary || p.weapons.secondary || 'knife',
         pw: p.weapons.primary || null, sw: p.weapons.secondary || null,
         am: ammoText(p),

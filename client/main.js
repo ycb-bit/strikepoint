@@ -18,8 +18,10 @@ import { createMinimap } from './minimap.js';
 import { triggerEmote, updateEmotes } from './emotes.js';
 import { loadProfile, levelFor, rankName, recordMatch } from './profile.js';
 import { SKINS, getSelectedSkin, setSelectedSkin, skinById, isSkinUnlocked, skinMaterials } from './skins.js';
-import { OP_SKINS, WEAPON_SKINS, NAME_COLORS, owned, equipped, purchase, equip, earnMatchCredits, credits } from './shop.js';
-import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, emoteHero } from './backdrop.js';
+import { OP_SKINS, WEAPON_SKINS, NAME_COLORS, owned, equipped, purchase, equip, earnMatchCredits, credits, ownedOutfits, equippedOutfit, equipOutfit, purchaseOutfit } from './shop.js';
+import { OUTFITS } from '../shared/outfits.js';
+const OUTFIT_LIST = Object.values(OUTFITS);
+import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, setBackdropOutfit, emoteHero } from './backdrop.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- DOM ----------
@@ -547,29 +549,29 @@ function applyState(m) {
   for (const p of m.ps) {
     roomPlayers.push(p);
     if (p.id === myId) { myStamina = p.st ?? 100; }
-    seen.add(p.id);
-    let wp = worldPlayers.get(p.id);
-    if (!wp) {
-      wp = {
-        x: p.x, y: p.y, z: p.z, yaw: p.ya,
-        lerpFrom: { x: p.x, y: p.y, z: p.z, yaw: p.ya }, lerpT: 1,
-        sk: p.sk || 'default',
-        grp: null,
-      };
-      worldPlayers.set(p.id, wp);
-      if (p.id !== myId) {
-        const teamMat = p.tm === TEAM.T ? MAT.t : MAT.ct;
-        const av = buildAvatar(teamMat);
-        const grp = av.grp;
-        // apply the player's skin (body color swap, accent on vest/pack/belt)
-        const sm = skinMaterials(wp.sk, teamMat);
-        if (sm) {
-          grp.userData.body.material = sm.body;
-          grp.userData.helmet.material = sm.body;
-          grp.userData.vest.material = sm.accent;
-          grp.userData.legL.children[0].material = sm.accent;
-          grp.userData.legR.children[0].material = sm.accent;
-        }
+    seen.add(p.id);      let wp = worldPlayers.get(p.id);
+      if (!wp) {
+        wp = {
+          x: p.x, y: p.y, z: p.z, yaw: p.ya,
+          lerpFrom: { x: p.x, y: p.y, z: p.z, yaw: p.ya }, lerpT: 1,
+          sk: p.sk || 'default',
+          of: p.of || 'assault',
+          grp: null,
+        };
+        worldPlayers.set(p.id, wp);
+        if (p.id !== myId) {
+          const teamMat = p.tm === TEAM.T ? MAT.t : MAT.ct;
+          const av = buildAvatar(teamMat, wp.of);
+          const grp = av.grp;
+          // apply the player's skin: cloth pieces take the colorway, gear stays gear
+          const sm = skinMaterials(wp.sk, teamMat);
+          if (sm) {
+            for (const c of grp.userData.cloth) if (c.material === teamMat) c.material = sm.body;
+            if (grp.userData.helmet && grp.userData.helmet.material === teamMat) grp.userData.helmet.material = sm.body;
+            grp.userData.legL.children[0].material = sm.accent;
+            grp.userData.legR.children[0].material = sm.accent;
+            wp.skinBodyMat = sm.body;   // remembered: death/respawn must restore THIS, not plain team color
+          }
         wp.animator = createAnimator(grp);
         // weapon finish (shop cosmetic)
         applyAvatarFinish(grp, p.wf || 'stock');
@@ -645,13 +647,34 @@ function applyState(m) {
       wp.al = p.al === 1; wp.tm = p.tm; wp.n = p.n; wp.act = p.act;
       wp.k = p.k; wp.d = p.d; wp.hp = p.hp; wp.sl = p.sl; wp.cr = p.cr; wp.sp = p.sp;
       if (wp.grp) {
-        const mat = !wp.al ? (p.tm === TEAM.T ? MAT.tDead : MAT.ctDead) : (p.tm === TEAM.T ? MAT.t : MAT.ct);
+        const isT = p.tm === TEAM.T;
+        // dead = corpse tint; alive = the player's SKIN cloth if they have one
+        const mat = !wp.al ? (isT ? MAT.tDead : MAT.ctDead) : (wp.skinBodyMat || (isT ? MAT.t : MAT.ct));
         wp.grp.userData.body.material = mat;
         wp.grp.userData.head.material = mat;
         wp.grp.visible = wp.al || errKeep(wp);
         wp.grp.rotation.y = wp.yaw;   // model faces -Z; sim forward is (-sin yaw, -cos yaw) — direct match
         if (wp.w !== p.w) { setAvatarWeapon(wp.grp, p.w); wp.w = p.w; }
         if (p.wf && p.wf !== wp.wf) { wp.wf = p.wf; applyAvatarFinish(wp.grp, p.wf); }
+        if (p.of && p.of !== wp.of && wp.grp) {
+          // outfit change mid-match: rebuild the avatar with the new clothing
+          const isT = wp.tm === TEAM.T;
+          const teamMat = isT ? MAT.t : MAT.ct;
+          const sm = skinMaterials(wp.sk, teamMat);
+          const av = buildAvatar(teamMat, p.of);
+          const grp = av.grp;
+          for (const c of grp.userData.cloth) if (c.material === teamMat) c.material = sm.body;
+          if (grp.userData.helmet && grp.userData.helmet.material === teamMat) grp.userData.helmet.material = sm.body;
+          grp.userData.legL.children[0].material = sm.accent;
+          grp.userData.legR.children[0].material = sm.accent;
+          applyAvatarFinish(grp, wp.wf || 'stock');
+          if (wp.n) grp.add(buildNameLabel(wp.n));
+          wp.animator = createAnimator(grp);
+          scene.remove(wp.grp);
+          scene.add(grp);
+          wp.grp = grp;
+          wp.of = p.of;
+        }
         if (p.nc && p.nc !== wp.nc && wp.grp) {
           // name-color cosmetic: repaint this avatar's name label in place
           const sprite = wp.grp.children.find(c => c.isSprite);
@@ -1666,6 +1689,7 @@ function renderSkinRow() {
 function applySkinToHero() {
   const s = skinById(getSelectedSkin());
   setBackdropSkin(s.body, s.accent);
+  setBackdropOutfit(s.outfit || 'assault');   // Arctic skin wears Arctic Ops clothes, etc.
 }
 renderSkinRow();
 applySkinToHero();
@@ -1693,7 +1717,23 @@ function renderShop() {
       <div class="sw" style="${swatch}"></div>
       <span class="sn">${item.name}</span>${label}</div>`;
   };
+  const outfitRow = (o) => {
+    const unlocked = o.free || (o.level ? levelFor(loadProfile().xp).level >= o.level : false) || ownedOutfits().includes(o.id || Object.keys(OUTFITS).find(k => OUTFITS[k] === o));
+    const oid = Object.keys(OUTFITS).find(k => OUTFITS[k] === o);
+    const equippedIt = equippedOutfit() === oid;
+    const ownedIt = o.free || ownedOutfits().includes(oid);
+    const label = equippedIt ? '<b class="own eq">✓ EQUIPPED</b>'
+      : ownedIt ? `<b class="own" data-kind="outfit" data-id="${oid}" data-act="equipOutfit">OWNED — EQUIP</b>`
+      : o.level ? `<b class="own" style="color:#ffd9a0">Lv ${o.level} FREE</b>`
+      : `<b class="buy" data-kind="outfit" data-id="${oid}" data-act="buyOutfit">${o.price} ⚡</b>`;
+    return `<div class="shop-card ${equippedIt ? 'eq' : ''}">
+      <div class="sw outfit-sw" style="font-size:22px; display:flex; align-items:center; justify-content:center">${o.tag}</div>
+      <span class="sn">${o.name}</span>
+      <span class="sd">${o.desc}</span>${label}</div>`;
+  };
   ui.shopItems.innerHTML =
+    '<h4 class="lo-h">OUTFITS</h4>' +
+    OUTFIT_LIST.map(outfitRow).join('') +
     '<h4 class="lo-h">OPERATOR SKINS</h4>' +
     OP_SKINS.map(s => card('skin', s, own.skins.includes(s.id), eq.skin === s.id)).join('') +
     '<h4 class="lo-h">WEAPON FINISHES</h4>' +
@@ -1706,7 +1746,11 @@ function renderShop() {
       if (act === 'buy') {
         const r = purchase(kind, id);
         if (!r.ok) { b.textContent = r.why; b.classList.add('deny'); setTimeout(() => renderShop(), 1200); return; }
-      } else equip(kind, id);
+      } else if (act === 'buyOutfit') {
+        const r = purchaseOutfit(id);
+        if (!r.ok) { b.textContent = r.why; b.classList.add('deny'); setTimeout(() => renderShop(), 1200); return; }
+      } else if (act === 'equipOutfit') equipOutfit(id);
+      else equip(kind, id);
       applyShopCosmetics();
       renderShop();
     };
@@ -1724,6 +1768,9 @@ function applyShopCosmetics() {
   // weapon finish -> viewmodel now; server learns via the next hello
   setViewmodelFinish(eq.weapon);
   myWeaponFinish = eq.weapon;
+  // outfit (structural clothing) — hero + broadcast
+  equipOutfit(eq.outfit);
+  setBackdropOutfit(eq.outfit);
   // name color is applied when the server echoes it back in state (p.nc)
 }
 let myWeaponFinish = 'stock';

@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { WEAPON_SKINS } from './shop.js';
+import { outfitById } from '../shared/outfits.js';
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const mat = (c) => new THREE.MeshBasicMaterial({ color: c });
@@ -296,26 +297,125 @@ export function startReloadAnim(durMs = 2200) {
 }
 
 // ---------- third-person avatars ----------
-// Rig v2 — round body parts, no box-people: sphere head + rounded helmet,
-// rounded torso (cylinder + dome cap), two-segment arms with elbows,
-// two-segment legs. Head/arms/gun parented to TORSO so crouch/slide move
-// the whole upper body.
-export function buildAvatar(teamMat) {
+// Rig v2 — round body parts, no box-people: sphere head + rounded torso,
+// two-segment arms with elbows, two-segment legs. Head/arms/gun are
+// parented to the TORSO so crouch/slide move the whole upper body.
+//
+// OUTFITS: each outfit swaps the STRUCTURE of the clothing (headwear, vest
+// type, packs, coats, masks). teamMat colors the cloth pieces; gear keeps
+// its own materials. userData.cloth / userData.headwear let skins recolor
+// cloth without touching gear (identity check: material === teamMat).
+export function buildAvatar(teamMat, outfitId) {
   const grp = new THREE.Group();
+  const outfit = outfitById(outfitId);
+  const oid = outfit.id;
   // torso group = everything above the hips
   const torso = new THREE.Group(); torso.position.y = 0.95;
   // rounded torso: short cylinder (fills sides) + half-sphere cap (fills top)
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.25, 0.52, 12), teamMat); body.position.y = 0.02; body.name = 'torso';
   const cap = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), teamMat); cap.position.y = 0.27;
-  // slim plate carrier: covers the chest front but leaves the colorway visible
-  const vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.06, 0.02); vest.scale.set(0.40, 0.40, 0.40);
-  const pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.36, 0.40, 0.14);
   const belt = new THREE.Mesh(BOX, M.boots); belt.position.y = -0.28; belt.scale.set(0.50, 0.09, 0.44);
-  // head: sphere + rounded helmet shell + visor plate
+  // head: sphere (skin shows under every headwear except full masks)
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 14, 12), M.skin); head.position.y = 0.50;
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
-  helmet.position.y = 0.535; helmet.scale.set(1, 0.82, 1.08);
-  const visor = new THREE.Mesh(BOX, M.gun); visor.position.set(0, 0.50, -0.135); visor.scale.set(0.22, 0.08, 0.05);
+
+  const headwear = [], cloth = [];
+  cloth.push(body, cap);
+  let vest = null, pack = null;
+  let helmet = head;
+
+  // ---- per-outfit gear ----
+  if (oid === 'assault') {
+    // ballistic helmet + slim plate carrier + backpack
+    helmet = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
+    helmet.position.y = 0.535; helmet.scale.set(1, 0.82, 1.08);
+    const visor = new THREE.Mesh(BOX, M.gun); visor.position.set(0, 0.50, -0.135); visor.scale.set(0.22, 0.08, 0.05);
+    headwear.push(helmet, visor);
+    vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.06, 0.02); vest.scale.set(0.40, 0.40, 0.40);
+    pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.36, 0.40, 0.14);
+  } else if (oid === 'scout') {
+    // baseball cap + headset + light chest rig
+    const capTop = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.07, 12), teamMat); capTop.position.y = 0.60;
+    const brim = new THREE.Mesh(BOX, teamMat); brim.position.set(0, 0.585, -0.17); brim.scale.set(0.24, 0.02, 0.16);
+    const bandL = new THREE.Mesh(BOX, M.gun); bandL.position.set(-0.16, 0.50, 0.02); bandL.scale.set(0.02, 0.10, 0.06);
+    const bandR = new THREE.Mesh(BOX, M.gun); bandR.position.set(0.16, 0.50, 0.02); bandR.scale.set(0.02, 0.10, 0.06);
+    headwear.push(capTop, brim, bandL, bandR);
+    const rig = new THREE.Mesh(BOX, M.vest); rig.position.set(0, 0.10, 0.04); rig.scale.set(0.34, 0.26, 0.36);
+    headwear.push(rig);
+  } else if (oid === 'officer') {
+    // tilted beret + high-collar jacket (torso flare) + shoulder boards
+    const beret = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
+    beret.position.y = 0.55; beret.scale.set(1.05, 0.55, 1.05); beret.rotation.z = 0.18;
+    const stem = new THREE.Mesh(BOX, M.gun); stem.position.set(0.02, 0.615, 0.04); stem.scale.set(0.05, 0.03, 0.05);
+    const boardL = new THREE.Mesh(BOX, M.gun); boardL.position.set(-0.26, 0.30, 0); boardL.scale.set(0.10, 0.04, 0.20);
+    const boardR = new THREE.Mesh(BOX, M.gun); boardR.position.set(0.26, 0.30, 0); boardR.scale.set(0.10, 0.04, 0.20);
+    headwear.push(beret, stem, boardL, boardR);
+    const jacket = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.28, 0.40, 12), teamMat); jacket.position.y = 0.06;
+    const collar = new THREE.Mesh(BOX, teamMat); collar.position.set(0, 0.30, 0.10); collar.scale.set(0.30, 0.08, 0.10);
+    cloth.push(jacket, collar);
+  } else if (oid === 'ghost') {
+    // full balaclava (cloth-colored face) + hood + minimal webbing
+    head.material = teamMat;
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
+    hood.position.y = 0.50; hood.scale.set(1.15, 0.9, 1.2);
+    headwear.push(hood);
+    const webbing = new THREE.Mesh(BOX, M.gun); webbing.position.set(0, 0.12, 0.10); webbing.scale.set(0.44, 0.06, 0.30);
+    headwear.push(webbing);
+  } else if (oid === 'sas') {
+    // gas mask (goggle discs + filter) + respirator harness
+    const mask = new THREE.Mesh(BOX, M.gun); mask.position.set(0, 0.50, -0.12); mask.scale.set(0.26, 0.20, 0.14);
+    const filter = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.07, 8), M.gun);
+    filter.position.set(0, 0.46, -0.22); filter.rotation.x = Math.PI / 2;
+    const gogL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 10), M.flash);
+    gogL.position.set(-0.07, 0.515, -0.13); gogL.rotation.x = Math.PI / 2;
+    const gogR = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 10), M.flash);
+    gogR.position.set(0.07, 0.515, -0.13); gogR.rotation.x = Math.PI / 2;
+    headwear.push(mask, filter, gogL, gogR);
+    helmet = mask;                                  // mask covers the head
+    vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.08, 0.02); vest.scale.set(0.42, 0.34, 0.40);
+    pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.05, 0.24); pack.scale.set(0.30, 0.34, 0.12);
+  } else if (oid === 'raptor') {
+    // goggles + jaw guard + ghillie shoulder pads
+    const strap = new THREE.Mesh(BOX, M.gun); strap.position.set(0, 0.55, -0.02); strap.scale.set(0.34, 0.05, 0.30);
+    const gogL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 10), M.flash);
+    gogL.position.set(-0.07, 0.51, -0.135); gogL.rotation.x = Math.PI / 2;
+    const gogR = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 10), M.flash);
+    gogR.position.set(0.07, 0.51, -0.135); gogR.rotation.x = Math.PI / 2;
+    const jaw = new THREE.Mesh(BOX, M.gun); jaw.position.set(0, 0.44, -0.10); jaw.scale.set(0.24, 0.10, 0.12);
+    headwear.push(strap, gogL, gogR, jaw);
+    const padL = new THREE.Mesh(new THREE.SphereGeometry(0.10, 8, 6), teamMat); padL.position.set(-0.30, 0.24, 0); padL.scale.set(1, 0.7, 1);
+    const padR = new THREE.Mesh(new THREE.SphereGeometry(0.10, 8, 6), teamMat); padR.position.set(0.30, 0.24, 0); padR.scale.set(1, 0.7, 1);
+    headwear.push(padL, padR);
+    vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.08, 0.02); vest.scale.set(0.38, 0.34, 0.38);
+  } else if (oid === 'juggernaut') {
+    // full-visor heavy helmet + bomb-suit plating
+    helmet = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 10), teamMat);
+    helmet.position.y = 0.52;
+    const vplate = new THREE.Mesh(BOX, M.gun); vplate.position.set(0, 0.51, -0.15); vplate.scale.set(0.28, 0.20, 0.04);
+    headwear.push(helmet, vplate);
+    const chestP = new THREE.Mesh(BOX, M.vest); chestP.position.set(0, 0.08, -0.16); chestP.scale.set(0.44, 0.44, 0.10);
+    const backP = new THREE.Mesh(BOX, M.vest); backP.position.set(0, 0.08, 0.18); backP.scale.set(0.44, 0.44, 0.10);
+    const groin = new THREE.Mesh(BOX, M.vest); groin.position.set(0, -0.22, 0); groin.scale.set(0.42, 0.16, 0.34);
+    vest = chestP; pack = backP;
+    torso.userData = torso.userData || {};          // (plating added below)
+    cloth.push(groin);
+  } else if (oid === 'arctic') {
+    // puffy winter coat + scarf + snow goggles on the bare head
+    const coat = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.28, 0.48, 12), teamMat); coat.position.y = 0.04;
+    const SCARF = new THREE.MeshBasicMaterial({ color: 0x8a2f2f });
+    const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.05, 8, 14), SCARF);
+    scarf.position.y = 0.36; scarf.rotation.x = Math.PI / 2;
+    const tail = new THREE.Mesh(BOX, SCARF); tail.position.set(0.08, 0.22, 0.14); tail.scale.set(0.10, 0.24, 0.05);
+    cloth.push(coat, scarf, tail);
+    const gband = new THREE.Mesh(BOX, M.gun); gband.position.set(0, 0.55, -0.02); gband.scale.set(0.34, 0.05, 0.30);
+    const ggogL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10), M.flash);
+    ggogL.position.set(-0.07, 0.55, -0.13); ggogL.rotation.x = Math.PI / 2;
+    const ggogR = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10), M.flash);
+    ggogR.position.set(0.07, 0.55, -0.13); ggogR.rotation.x = Math.PI / 2;
+    headwear.push(gband, ggogL, ggogR);
+  }
+
+  if (vest) headwear.push(vest);   // gear pieces tracked for potential recolor
+  if (pack) headwear.push(pack);
   // arms: shoulder pivot -> upper arm -> ELBOW pivot -> forearm + hand
   const mkArm = (x) => {
     const shoulder = new THREE.Group(); shoulder.position.set(x, 0.22, 0);
@@ -336,7 +436,8 @@ export function buildAvatar(teamMat) {
   const barrel = new THREE.Mesh(BOX, M.dark); barrel.position.set(0, 0.01, -0.42); barrel.scale.set(0.035, 0.035, 0.30);
   const stock = new THREE.Mesh(BOX, M.grip); stock.position.set(0, -0.02, 0.30); stock.scale.set(0.05, 0.10, 0.18);
   gun.add(receiver, mag, barrel, stock);
-  torso.add(body, vest, pack, belt, head, helmet, visor, armL, armR, gun);
+  const extraCloth = cloth.filter(c => c !== body && c !== cap);
+  torso.add(body, cap, belt, head, armL, armR, gun, ...headwear, ...extraCloth);
   // legs: hip pivot -> thigh -> KNEE pivot -> shin + boot
   const mkLeg = (x) => {
     const hip = new THREE.Group(); hip.position.set(x, 0.62, 0);
@@ -354,7 +455,7 @@ export function buildAvatar(teamMat) {
     torso, legL, legR, armL, armR,
     legLKnee: legL.userData.knee, legRKnee: legR.userData.knee,
   };
-  grp.userData = { body, head, helmet, vest, legL, legR, armL, armR, gun, torso };
+  grp.userData = { body, head, helmet, vest, legL, legR, armL, armR, gun, torso, headwear, cloth };
   return { grp };
 }
 

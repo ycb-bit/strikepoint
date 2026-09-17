@@ -20,12 +20,12 @@ export class Net {
   }
 
   hello(name) {
-    let wf = 'stock', nc = 'none';
+    let wf = 'stock', nc = 'none', of = 'assault';
     try {
       const p = JSON.parse(localStorage.getItem('sp_profile_v1') || '{}');
-      wf = p.eqWeapon || 'stock'; nc = p.eqName || 'none';
+      wf = p.eqWeapon || 'stock'; nc = p.eqName || 'none'; of = p.eqOutfit || 'assault';
     } catch {}
-    this.send({ t: 'hello', name, sk: localStorage.getItem('sp_skin') || 'default', wf, nc });
+    this.send({ t: 'hello', name, sk: localStorage.getItem('sp_skin') || 'default', wf, nc, of });
   }
 
   queue(on = true, pref) { this.send({ t: on ? 'queue' : 'unqueue', ...pref }); }

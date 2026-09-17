@@ -244,8 +244,10 @@ const heroMats = {
 export function setBackdropTeam(team) {
   if (!hero) return;
   const mat = team === 'ct' ? heroMats.ct : heroMats.t;
-  hero.userData.body.material = mat;
-  hero.userData.helmet.material = mat;
+  // reset every cloth piece to the plain team material (a skin may be applied
+  // later on top — this is the "back to basics" path)
+  for (const c of hero.userData.cloth) c.material = mat;
+  if (hero.userData.helmet) hero.userData.helmet.material = mat;
 }
 let heroSkinMats = null;
 function applyHeroSkinMats() {
@@ -266,16 +268,20 @@ function applyHeroSkinMats() {
 export function setBackdropSkin(bodyHex, accentHex) {
   if (!hero) return;
   if (bodyHex == null) {
+    // default: restore the hero team material on every cloth piece
     const mat = heroMats.t;
-    hero.userData.body.material = mat;
-    hero.userData.helmet.material = mat;
-  } else {
-    applyHeroSkinMats();
-    heroSkinMats.body.color.setHex(bodyHex);
-    heroSkinMats.body.emissive.setHex(glowHex(bodyHex, 0.32));
-    heroSkinMats.accent.color.setHex(accentHex);
-    heroSkinMats.accent.emissive.setHex(glowHex(accentHex, 0.18));
+    for (const c of hero.userData.cloth) if (c.material !== heroMats.t) c.material = mat;
+    if (hero.userData.helmet) hero.userData.helmet.material = mat;
+    return;
   }
+  applyHeroSkinMats();
+  heroSkinMats.body.color.setHex(bodyHex);
+  heroSkinMats.body.emissive.setHex(glowHex(bodyHex, 0.32));
+  heroSkinMats.accent.color.setHex(accentHex);
+  heroSkinMats.accent.emissive.setHex(glowHex(accentHex, 0.18));
+  // paint cloth (identity check: anything still on the hero team mat)
+  for (const c of hero.userData.cloth) if (c.material === heroMats.t) c.material = heroSkinMats.body;
+  if (hero.userData.helmet && hero.userData.helmet.material === heroMats.t) hero.userData.helmet.material = heroSkinMats.body;
 }
 // per-channel glow so colorways read in dim map lighting
 function glowHex(hex, k) {
@@ -286,11 +292,28 @@ function glowHex(hex, k) {
 }
 export function ensureHero() {
   if (hero) return;
-  const { grp } = buildAvatar(heroMats.t);
+  const { grp } = buildAvatar(heroMats.t, heroOutfit);
+  grp.userData.outfit = heroOutfit;
   grp.position.set(0, 0, 0);
   scene.add(grp);
   hero = grp;
 }
+let heroOutfit = 'assault';   // outfit applied at hero build time (persists across rebuilds)
 export function setBackdropActive(v) { active = v; if (v) ensureHero(); }
 // lobby gestures: the hero plays the same arm animations as in-game avatars
 export function emoteHero(kind) { if (hero) triggerEmote(hero, kind); }
+
+// outfit swap for the hero (structural clothing change -> rebuild the rig)
+export function setBackdropOutfit(outfitId) {
+  heroOutfit = outfitId;
+  if (!hero || hero.userData.outfit === outfitId) return;
+  const old = hero;
+  const { grp } = buildAvatar(old.userData.body.material, outfitId);
+  grp.position.copy(old.position);
+  grp.rotation.copy(old.rotation);
+  scene.add(grp);
+  scene.remove(old);
+  hero = grp;
+  hero.userData.outfit = outfitId;
+  hero.userData.emoting = false;
+}

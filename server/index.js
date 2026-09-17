@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { joinQueue, leaveQueue, createRoom, joinRoom, roomList, allRooms, startGc } from './rooms.js';
 import { MAX_PLAYERS } from '../shared/constants.js';
+import { OUTFIT_IDS } from '../shared/outfits.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -109,6 +110,7 @@ function route(client, m) {
       client.skin = String(m.sk || 'default').slice(0, 16);
       client.wfin = String(m.wf || 'stock').slice(0, 16);   // weapon finish (cosmetic)
       client.ncolor = String(m.nc || 'none').slice(0, 16);  // name color (cosmetic)
+      client.outfit = OUTFIT_IDS.includes(m.of) ? m.of : 'assault';  // clothing variant
       client.send({ t: 'hello-ok', name: client.name });
       // announce cosmetics to the current room so mid-match equips apply live
       if (client.room && client.room.announceCosmetics) client.room.announceCosmetics(client.id);
