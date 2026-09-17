@@ -311,12 +311,13 @@ export function buildAvatar(teamMat, outfitId) {
   const oid = outfit.id;
   // torso group = everything above the hips
   const torso = new THREE.Group(); torso.position.y = 0.95;
-  // rounded torso: short cylinder (fills sides) + half-sphere cap (fills top)
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.25, 0.52, 12), teamMat); body.position.y = 0.02; body.name = 'torso';
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), teamMat); cap.position.y = 0.27;
-  const belt = new THREE.Mesh(BOX, M.boots); belt.position.y = -0.28; belt.scale.set(0.50, 0.09, 0.44);
-  // head: sphere (skin shows under every headwear except full masks)
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 14, 12), M.skin); head.position.y = 0.50;
+  // rounded torso: broad shoulders tapering down + shoulder domes
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.25, 0.46, 12), teamMat); body.position.y = 0.03; body.name = 'torso';
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.30, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
+  cap.scale.set(1, 0.4, 1); cap.position.y = 0.24;   // FLAT shoulder dome, not a balloon
+  const belt = new THREE.Mesh(BOX, M.boots); belt.position.y = -0.25; belt.scale.set(0.50, 0.09, 0.44);
+  // head: proper size, clear of the torso dome (head r=0.16 sits at y=0.58)
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 12), M.skin); head.position.y = 0.58;
 
   const headwear = [], cloth = [];
   cloth.push(body, cap);
@@ -325,13 +326,19 @@ export function buildAvatar(teamMat, outfitId) {
 
   // ---- per-outfit gear ----
   if (oid === 'assault') {
-    // ballistic helmet + slim plate carrier + backpack
-    helmet = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
-    helmet.position.y = 0.535; helmet.scale.set(1, 0.82, 1.08);
-    const visor = new THREE.Mesh(BOX, M.gun); visor.position.set(0, 0.50, -0.135); visor.scale.set(0.22, 0.08, 0.05);
+    // ballistic helmet sized to the (now larger) head + open front-plate carrier
+    helmet = new THREE.Mesh(new THREE.SphereGeometry(0.185, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
+    helmet.position.y = 0.60; helmet.scale.set(1, 0.85, 1.08);
+    const visor = new THREE.Mesh(BOX, M.gun); visor.position.set(0, 0.565, -0.14); visor.scale.set(0.22, 0.08, 0.05);
     headwear.push(helmet, visor);
-    vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.06, 0.02); vest.scale.set(0.40, 0.40, 0.40);
-    pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.36, 0.40, 0.14);
+    // carrier: FLAT panel with magazine pouches — sides and back stay open so
+    // the body silhouette reads through (the old 0.4 cube hid everything)
+    const plate = new THREE.Mesh(BOX, M.vest); plate.position.set(0, 0.08, -0.24); plate.scale.set(0.40, 0.40, 0.10);
+    const pouch1 = new THREE.Mesh(BOX, M.grip); pouch1.position.set(-0.09, -0.04, -0.30); pouch1.scale.set(0.11, 0.12, 0.06);
+    const pouch2 = new THREE.Mesh(BOX, M.grip); pouch2.position.set(0.09, -0.04, -0.30); pouch2.scale.set(0.11, 0.12, 0.06);
+    vest = plate;
+    headwear.push(pouch1, pouch2);
+    pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.34, 0.40, 0.12);
   } else if (oid === 'scout') {
     // baseball cap + headset + light chest rig
     const capTop = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.07, 12), teamMat); capTop.position.y = 0.60;
@@ -424,13 +431,19 @@ export function buildAvatar(teamMat, outfitId) {
     const fore = new THREE.Mesh(BOX, teamMat); fore.position.set(0, -0.03, -0.14); fore.scale.set(0.11, 0.12, 0.30);
     const hand = new THREE.Mesh(BOX, M.skin); hand.position.set(0, -0.03, -0.28); hand.scale.set(0.10, 0.10, 0.12);
     elbow.add(fore, hand); shoulder.add(upper, elbow);
+    // tuck: angle the forearm inward so both hands meet on the rifle grip
+    // (hands end up at ~(±0.09, -0.05, -0.29) — measured through the chain),
+    // and pull the shoulders slightly in — arms no longer stick out wide
+    elbow.rotation.y = x < 0 ? -0.75 : 0.75;
+    shoulder.rotation.z = x < 0 ? 0.15 : -0.15;
     shoulder.userData.elbow = elbow;
     shoulder.name = x < 0 ? 'armL' : 'armR';
     return shoulder;
   };
   const armL = mkArm(-0.32), armR = mkArm(0.32);
-  // rifle in both hands (in torso space)
-  const gun = new THREE.Group(); gun.position.set(0.06, 0.17, -0.30);
+  // rifle in both hands (in torso space) — receiver passes through the
+  // tucked hands at (±0.09, −0.05, −0.29): a real two-hand rifle grip
+  const gun = new THREE.Group(); gun.position.set(0, -0.02, -0.30);
   const receiver = new THREE.Mesh(BOX, M.black); receiver.scale.set(0.07, 0.11, 0.55);
   const mag = new THREE.Mesh(BOX, M.dark); mag.position.set(0, -0.10, 0.05); mag.scale.set(0.05, 0.14, 0.09);
   const barrel = new THREE.Mesh(BOX, M.dark); barrel.position.set(0, 0.01, -0.42); barrel.scale.set(0.035, 0.035, 0.30);

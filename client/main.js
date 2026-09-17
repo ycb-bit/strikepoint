@@ -1541,7 +1541,7 @@ ui.btnQueue.onclick = () => {
 // hero skin follows the selected side (defuse shows your team look)
 function heroTeam() { return selMode === 'defuse' ? 't' : 't'; }
 const _origSync = syncTiles;
-syncTiles = function () { _origSync(); setBackdropTeam(heroTeam()); };
+syncTiles = function () { _origSync(); setBackdropTeam(heroTeam()); applySkinToHero(); };
 
 // settings wiring
 function applySettings() {
@@ -1708,8 +1708,11 @@ function renderSkinRow() {
 }
 function applySkinToHero() {
   const s = skinById(getSelectedSkin());
-  setBackdropSkin(s.body, s.accent);
+  // ORDER MATTERS: outfit may rebuild the avatar (fresh team-colored cloth),
+  // so the skin paint must come after — otherwise the paint is wiped and you
+  // get a half-painted franken-hero (brown head, white body...)
   setBackdropOutfit(s.outfit || 'assault');   // Arctic skin wears Arctic Ops clothes, etc.
+  setBackdropSkin(s.body, s.accent);
 }
 renderSkinRow();
 applySkinToHero();
@@ -1768,6 +1771,14 @@ setTouchSens(settings.sensitivity);
 // ---------- shop (cosmetics marketplace) ----------
 function renderShop() {
   if (!ui.shopItems) return;
+  try {
+    renderShopInner();
+  } catch (e) {
+    console.error('shop render failed', e);
+    ui.shopItems.innerHTML = '<div class="shop-hint">Shop failed to load — refresh the page.</div>';
+  }
+}
+function renderShopInner() {
   const own = owned(), eq = equipped(), creds = credits();
   ui.shopCredits.textContent = creds + ' ⚡';
   const card = (kind, item, ownedIt, equippedIt) => {
@@ -1846,7 +1857,14 @@ function toggleShop(force) {
   if (want) renderShop();
 }
 ui.btnShopClose.onclick = () => toggleShop(false);
-const _btnShop = document.getElementById('btnShop'); if (_btnShop) _btnShop.onclick = () => toggleShop(true);
+// STORE button: wired twice on purpose (direct + delegated) so nothing —
+// not even a script-order hiccup — can make the button dead
+const _btnShop = document.getElementById('btnShop');
+if (_btnShop) _btnShop.addEventListener('click', (e) => { e.stopPropagation(); toggleShop(true); });
+document.addEventListener('click', (e) => {
+  const t = e.target.closest && e.target.closest('#btnShop');
+  if (t) toggleShop(true);
+}, true);
 
 // ---------- lobby ready + chat ----------
 let iAmReady = false;
