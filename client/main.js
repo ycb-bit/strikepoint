@@ -21,7 +21,7 @@ import { SKINS, getSelectedSkin, setSelectedSkin, skinById, isSkinUnlocked, skin
 import { OP_SKINS, WEAPON_SKINS, NAME_COLORS, owned, equipped, purchase, equip, earnMatchCredits, credits, ownedOutfits, equippedOutfit, equipOutfit, purchaseOutfit } from './shop.js';
 import { OUTFITS } from '../shared/outfits.js';
 const OUTFIT_LIST = Object.values(OUTFITS);
-import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, setBackdropOutfit, emoteHero } from './backdrop.js';
+import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, setBackdropOutfit, emoteHero, beginInspect, inspectRotate, inspectZoom } from './backdrop.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- DOM ----------
@@ -1694,6 +1694,52 @@ function applySkinToHero() {
 renderSkinRow();
 applySkinToHero();
 setViewmodelFinish(equipped().weapon);   // shop weapon finish on the viewmodel
+
+// ---------- hub: drag to inspect your operator, wheel/pinch to zoom ----------
+// Only on empty space (rails/buttons keep their own events); blends back to
+// the cinematic orbit automatically after a couple seconds idle.
+const INSPECT_SKIP = 'button, input, select, textarea, .hub-rail, .menu-box, .tile-row, .skin-row, .skin-chip';
+let inspectDrag = false;
+ui.menu.addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || ui.menu.classList.contains('hidden')) return;
+  if (e.target.closest(INSPECT_SKIP)) return;
+  inspectDrag = true;
+  beginInspect();
+});
+addEventListener('mousemove', (e) => {
+  if (inspectDrag) inspectRotate(e.movementX, -e.movementY);
+});
+addEventListener('mouseup', () => { inspectDrag = false; });
+ui.menu.addEventListener('wheel', (e) => {
+  if (ui.menu.classList.contains('hidden')) return;
+  if (e.target.closest(INSPECT_SKIP)) return;
+  e.preventDefault();
+  inspectZoom(e.deltaY * 0.0025);
+}, { passive: false });
+let tInspect = null, pinchD = 0;
+ui.menu.addEventListener('touchstart', (e) => {
+  if (ui.menu.classList.contains('hidden')) return;
+  if (e.target.closest(INSPECT_SKIP)) return;
+  if (e.touches.length === 1) {
+    tInspect = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    beginInspect();
+  } else if (e.touches.length === 2) {
+    pinchD = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }
+}, { passive: true });
+ui.menu.addEventListener('touchmove', (e) => {
+  if (!tInspect) return;
+  if (e.touches.length === 1) {
+    inspectRotate((e.touches[0].clientX - tInspect.x) * 1.6, -(e.touches[0].clientY - tInspect.y) * 1.6);
+    tInspect.x = e.touches[0].clientX; tInspect.y = e.touches[0].clientY;
+  } else if (e.touches.length === 2) {
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    inspectZoom((pinchD - d) * 0.01);
+    pinchD = d;
+  }
+  e.preventDefault();
+}, { passive: false });
+addEventListener('touchend', () => { tInspect = null; });
 
 // touch: emote button cycles gestures; sensitivity follows the slider
 onEmotePressed(() => { net.action({ k: 'emote', e: nextEmote() }); });

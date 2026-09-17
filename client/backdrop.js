@@ -179,16 +179,30 @@ export function renderBackdrop(dt, w, h) {
   ensureRtTargets();
   ang += dt * 0.06;
   const half = backdropHalf || 32;
-  const r = 6.2;
+  // ---- inspect mode: user drag = turntable rotate, wheel = zoom.
+  // Blends smoothly back to the cinematic auto-orbit after ~2.5s idle.
+  const nowMs = performance.now();
+  if (inspect.blend > 0.01 && nowMs - inspect.lastInput > 2500) inspect.on = false;
+  inspect.blend += ((inspect.on ? 1 : 0) - inspect.blend) * Math.min(1, dt * 4);
+  const b = inspect.blend;
+  const az = ang * (1 - b) + inspect.az * b;            // azimuth
+  const el = 0.34 * (1 - b) + inspect.el * b;           // elevation
+  const r = 6.2 * (1 - b) + inspect.dist * b;           // radius
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  camera.position.set(heroCenter.x + Math.cos(ang) * r, 2.1, heroCenter.z + Math.sin(ang) * r);
+  camera.position.set(
+    heroCenter.x + Math.cos(az) * Math.cos(el) * r,
+    1.0 + Math.sin(el) * r,
+    heroCenter.z + Math.sin(az) * Math.cos(el) * r
+  );
   camera.lookAt(heroCenter.x, 1.0, heroCenter.z);
-  // hero: faces the camera, subtle breathing + weapon held
-  // model faces -Z: to look TOWARD the camera, yaw = atan2(dx, dz) + PI
+  // hero: faces the camera during the cinematic orbit; in inspect mode the
+  // camera does the moving (turntable), so the pose stays world-fixed
   if (hero) {
-    hero.rotation.y = Math.atan2(camera.position.x - hero.position.x, camera.position.z - hero.position.z) + Math.PI;
-    hero.userData.torso.position.y = 0.95 + Math.sin(performance.now() / 700) * 0.012;
+    if (b < 0.5) {
+      hero.rotation.y = Math.atan2(camera.position.x - hero.position.x, camera.position.z - hero.position.z) + Math.PI;
+    }
+    hero.userData.torso.position.y = 0.95 + Math.sin(nowMs / 700) * 0.012;
   }
 
   // bots wander in lazy circles with synced leg swings
@@ -234,6 +248,31 @@ export function renderBackdrop(dt, w, h) {
 }
 
 let backdropHalf = 32;
+
+// ---- hero inspect mode (drag rotate + wheel zoom, blends with the auto-orbit)
+const inspect = { on: false, az: 0, el: 0.34, dist: 4.4, blend: 0, lastInput: 0 };
+export function beginInspect() {
+  if (!hero) return;
+  inspect.on = true;
+  inspect.lastInput = performance.now();
+  // start the turntable where the cinematic camera currently is (no jump)
+  const dx = camera.position.x - hero.position.x, dz = camera.position.z - hero.position.z;
+  inspect.az = Math.atan2(dz, dx) - Math.PI / 2;
+  const dy = camera.position.y - 1.0;
+  inspect.el = Math.atan2(dy, Math.hypot(dx, dz));
+  inspect.dist = Math.hypot(dx, dy, dz);
+}
+export function inspectRotate(dxPixels, dyPixels) {
+  if (!inspect.on) return;
+  inspect.az -= dxPixels * 0.006;
+  inspect.el = Math.max(-0.5, Math.min(0.9, inspect.el + dyPixels * 0.004));
+  inspect.lastInput = performance.now();
+}
+export function inspectZoom(delta) {
+  if (!inspect.on) return;
+  inspect.dist = Math.max(2.2, Math.min(10, inspect.dist + delta));
+  inspect.lastInput = performance.now();
+}
 
 // hero soldier: stands center-stage, faces the camera, breathing idle
 let hero = null;
