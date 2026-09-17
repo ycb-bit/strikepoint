@@ -1,0 +1,17 @@
+{
+  "name": "strikepoint",
+  "version": "0.1.0",
+  "description": "Low-RAM browser FPS with CS-style rounds, matchmaking and private rooms",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "three": "^0.166.0",
+    "ws": "^8.18.0"
+  }
+}

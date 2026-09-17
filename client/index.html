@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Strikepoint</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- ===== MENU (hub layout: hero center, panels on sides) ===== -->
+<div id="menu" class="screen">
+  <!-- left rail: profile + social buttons -->
+  <div class="hub-rail hub-left">
+    <div class="hub-logo">STRIKE<span>POINT</span></div>
+    <div id="profileCard" class="profile-card">
+      <div class="pc-left"><b id="pcLevel">1</b><span id="pcRank">Recruit</span></div>
+      <div class="pc-mid">
+        <div id="pcBar"><div id="pcFill"></div></div>
+        <small id="pcXp">0 / 100 XP</small>
+      </div>
+      <div class="pc-right"><span id="pcKd">0.0 K/D</span><span id="pcWins">0 wins</span></div>
+    </div>
+    <input id="nameInput" maxlength="16" placeholder="Your name" autocomplete="off">
+    <div class="rail-btns">
+      <button id="btnSettings" class="ghost">⚙</button>
+      <button id="btnTutorial" class="ghost">?</button>
+      <button id="btnReport" class="ghost">⚠</button>
+      <button id="btnBrowser" class="ghost">🌐</button>
+    </div>
+    <div id="status"></div>
+    <div id="connDot" class="dot">connecting…</div>
+  </div>
+
+  <!-- center: open floor for the 3D hero (no DOM here) -->
+  <div class="hub-center">
+    <div class="hero-tag">
+      <b id="heroName">OPERATOR</b>
+      <span id="heroTeam">T ERRORISTS</span>
+      <div id="skinRow" class="skin-row"></div>
+    </div>
+  </div>
+
+  <!-- right rail: mode + map + play -->
+  <div class="hub-rail hub-right">
+    <h4 class="lo-h">MODE</h4>
+    <div id="modeTiles" class="tile-row">
+      <div class="mode-tile sel" data-mode="defuse"><b>💣 DEFUSE</b><span>5v5 bomb</span></div>
+      <div class="mode-tile" data-mode="tdm"><b>🔫 TDM</b><span>team kills</span></div>
+      <div class="mode-tile" data-mode="ffa"><b>☠ FFA</b><span>free-for-all</span></div>
+    </div>
+    <h4 class="lo-h">MAP</h4>
+    <div id="mapTiles" class="tile-row">
+      <div class="map-tile sel" data-map=""><b>🎲 ANY</b><span>random</span></div>
+      <div class="map-tile" data-map="city"><b>CITY</b><span>streets</span></div>
+      <div class="map-tile" data-map="dust"><b>DUST</b><span>two-lane</span></div>
+      <div class="map-tile" data-map="complex"><b>COMPLEX</b><span>indoor</span></div>
+      <div class="map-tile" data-map="compound"><b>WAREHOUSE</b><span>yard</span></div>
+      <div class="map-tile" data-map="arena"><b>ARENA</b><span>small</span></div>
+    </div>
+    <button id="btnQueue" class="primary big-play">▶ PLAY <span id="playSel">DEFUSE · ANY</span></button>
+    <div class="row">
+      <button id="btnCreate">➕ Create Room</button>
+      <button id="btnJoin">🔗 Join Code</button>
+    </div>
+    <div class="hint">WASD · Shift sprint · Ctrl crouch/slide · B buy · L loadout</div>
+
+    <select id="modeSelect" class="hidden">
+      <option value="defuse">Defuse</option><option value="tdm">TDM</option><option value="ffa">FFA</option>
+    </select>
+    <select id="mapPick" class="hidden">
+      <option value=""></option><option value="city">city</option><option value="dust">dust</option>
+      <option value="complex">complex</option><option value="compound">compound</option><option value="arena">arena</option>
+    </select>
+
+    <div id="createBox" class="sub-box column hidden">
+      <div class="row">
+        <select id="mapSelect">
+          <option value="city">City</option>
+          <option value="dust">Dust</option>
+          <option value="compound">Warehouse</option>
+          <option value="complex">Complex</option>
+          <option value="arena">Arena</option>
+        </select>
+        <select id="modeSelectC">
+          <option value="defuse">Defuse (5v5 bomb)</option>
+          <option value="tdm">Team Deathmatch</option>
+          <option value="ffa">Free-For-All</option>
+        </select>
+      </div>
+      <label>Bots: <input id="botCount" type="number" min="0" max="18" value="8" style="width:4em"></label>
+      <h4>CUSTOM RULES</h4>
+      <label>Score limit <input id="ruleKillLimit" type="number" min="5" max="200" value="0" title="0 = mode default"></label>
+      <label>Match time (min) <input id="ruleRoundTime" type="number" min="1" max="30" value="0" title="0 = mode default"></label>
+      <label>Respawn time (s) <input id="ruleRespawn" type="number" min="1" max="15" value="3"></label>
+      <label class="chk"><input id="ruleFF" type="checkbox"> Friendly fire</label>
+      <button id="btnDoCreate" class="primary">Create Room</button>
+    </div>
+    <div id="joinBox" class="sub-box hidden">
+      <input id="joinCode" maxlength="4" inputmode="numeric" placeholder="1234">
+      <button id="btnDoJoin" class="primary">Join</button>
+    </div>
+
+    <div id="settingsBox" class="sub-box column hidden">
+      <h4>Mouse</h4>
+      <label>Sensitivity <input id="setSens" type="range" min="0.2" max="3" step="0.05" value="1"><span id="sensVal">1.00</span></label>
+      <label>ADS sensitivity ×<input id="setAdsSens" type="range" min="0.2" max="1" step="0.05" value="0.5"><span id="adsSensVal">0.50</span></label>
+      <label>Invert Y <input id="setInvertY" type="checkbox"> </label>
+      <h4>View</h4>
+      <label>FOV <input id="setFov" type="range" min="60" max="110" step="1" value="74"><span id="fovVal">74</span></label>
+      <label>Render scale <input id="setScale" type="range" min="0.5" max="1.5" step="0.05" value="1"><span id="scaleVal">1.00</span></label>
+      <label class="chk"><input id="setFps" type="checkbox"> FPS counter</label>
+      <h4>Crosshair</h4>
+      <label>Size <input id="setCrossSize" type="range" min="4" max="24" step="1" value="10"><span id="crossSizeVal">10</span></label>
+      <label>Thickness <input id="setCrossThick" type="range" min="1" max="4" step="1" value="2"><span id="crossThickVal">2</span></label>
+      <label>Color <input id="setCrossColor" type="color" value="#d9f0ff"></label>
+      <label class="chk"><input id="setCrossDot" type="checkbox" checked> Center dot</label>
+      <h4>Gameplay</h4>
+      <label class="chk"><input id="setTracers" type="checkbox" checked> Bullet tracers</label>
+      <label class="chk"><input id="setDmg" type="checkbox" checked> Damage numbers</label>
+      <label>Dmg number size <input id="setDmgSize" type="range" min="1" max="3" step="0.25" value="1.75"><span id="dmgSizeVal">1.75×</span></label>
+      <label class="chk"><input id="setHpBars" type="checkbox" checked> Enemy health bars</label>
+      <label class="chk"><input id="setKillfeed" type="checkbox" checked> Kill feed</label>
+      <h4>Audio</h4>
+      <label>Volume <input id="setVol" type="range" min="0" max="1" step="0.05" value="0.8"><span id="volVal">0.80</span></label>
+      <button id="btnResetSettings" class="ghost small">Reset to defaults</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="connDot" class="dot">connecting…</div>
+    <div class="hint">WASD move · Shift sprint · Ctrl/C crouch · crouch while sprinting = slide · Click fire · R reload · B buy · L loadout · E plant/defuse · 1/2/3 slots · Tab scoreboard</div>
+  </div>
+</div>
+
+<!-- ===== TUTORIAL ===== -->
+<div id="tutorial" class="screen hidden">
+  <div class="menu-box tut-box">
+    <h2>HOW TO PLAY</h2>
+    <div class="tut-grid">
+      <div class="tut-col">
+        <h3>Movement</h3>
+        <p><b>W A S D</b> — move</p>
+        <p><b>Shift (hold)</b> — sprint forward (drains stamina)</p>
+        <p><b>Ctrl / C (hold)</b> — crouch (slower, more accurate)</p>
+        <p><b>Ctrl / C while sprinting</b> — slide (speed burst!)</p>
+        <p><b>Space</b> — jump</p>
+      </div>
+      <div class="tut-col">
+        <h3>Combat</h3>
+        <p><b>Mouse</b> — aim · <b>Left click</b> — fire</p>
+        <p><b>Right click</b> — ADS zoom (AWP gets a scope)</p>
+        <p><b>R</b> — reload</p>
+        <p><b>1 / 2 / 3</b> — primary / pistol / knife</p>
+        <p><b>Tab</b> — scoreboard</p>
+      </div>
+      <div class="tut-col">
+        <h3>Modes</h3>
+        <p><b>Defuse:</b> T side plants the bomb (E in a site), CT side stops them or defuses (E on the bomb). Win 8 rounds. Buy gear with B during freeze.</p>
+        <p><b>TDM:</b> first team to 40 kills. Respawn 3s. Pick your loadout any time (L).</p>
+        <p><b>FFA:</b> everyone vs everyone — first to 30 kills. Loadout with (L).</p>
+      </div>
+      <div class="tut-col">
+        <h3>Tips</h3>
+        <p>Headshots deal big bonus damage — aim high!</p>
+        <p>Armor absorbs damage. Buy it (B) in defuse mode.</p>
+        <p>Sprinting hurts accuracy — stop or walk to shoot straight.</p>
+      </div>
+    </div>
+    <button id="btnTutorialClose" class="primary">Got it</button>
+  </div>
+</div>
+
+<!-- ===== LOBBY (custom room host panel) ===== -->
+<div id="lobby" class="screen hidden">
+  <div class="menu-box lobby-box">
+    <h2>LOBBY</h2>
+    <div class="lobby-code-row">
+      <small>JOIN CODE</small>
+      <b id="lobbyCode">----</b>
+      <button id="btnCopyCode" class="ghost small">copy</button>
+    </div>
+    <div class="lobby-meta"><span id="lobbyMap">map: —</span><span id="lobbyMode">mode: —</span><span id="lobbyCount">0/20</span><span id="lobbyReadyCount"></span></div>
+    <h4 class="lo-h">PLAYERS</h4>
+    <div id="lobbyPlayers"></div>
+    <div class="row">
+      <button id="btnLobbyReady" class="ghost">Ready up</button>
+      <button id="btnLobbyStart" class="primary">Start / Resume</button>
+      <button id="btnLobbyLeave">Leave</button>
+    </div>
+    <h4 class="lo-h">CHAT</h4>
+    <div id="chatLog"></div>
+    <div id="chatRow"><input id="chatInput" maxlength="200" placeholder="Say something… (Enter to send)"><button id="btnChatSend" class="small">Send</button></div>
+    <div class="hint">Share the code — friends join from the menu. Host can kick players above.</div>
+  </div>
+</div>
+
+<!-- ===== SERVER BROWSER ===== -->
+<div id="browser" class="screen hidden">
+  <div class="menu-box browser-box">
+    <h2>SERVER BROWSER</h2>
+    <div id="browserList" class="browser-list"></div>
+    <div class="row">
+      <button id="btnBrowserRefresh" class="ghost small">Refresh</button>
+      <button id="btnBrowserClose">Close</button>
+    </div>
+    <div class="hint">Custom rooms are listed here — pick one and click Join.</div>
+  </div>
+</div>
+
+<!-- ===== LOADOUT (tdm/ffa) ===== -->
+<div id="loadoutMenu" class="screen hidden">
+  <div class="buy-box">
+    <h2>LOADOUT</h2>
+    <h4 class="lo-h">PRIMARY</h4>
+    <div id="loPrimaries" class="lo-row"></div>
+    <h4 class="lo-h">SECONDARY</h4>
+    <div id="loSecondaries" class="lo-row"></div>
+    <div class="buy-hint">L or Esc to close — applies on next respawn</div>
+  </div>
+</div>
+
+<!-- ===== BUY MENU ===== -->
+<div id="buyMenu" class="screen hidden">
+  <div class="buy-box">
+    <h2>BUY <span id="buyMoney"></span></h2>
+    <div id="buyList"></div>
+    <div class="buy-hint">B or Esc to close — buy time is freeze time</div>
+  </div>
+</div>
+
+<!-- ===== REPORT ===== -->
+<div id="reportBox" class="screen hidden">
+  <div class="menu-box report-box">
+    <h2>REPORT A PROBLEM</h2>
+    <textarea id="reportText" maxlength="300" placeholder="What went wrong? (bug, cheater, lag…)" rows="4"></textarea>
+    <div class="row">
+      <button id="btnReportSend" class="primary">Send</button>
+      <button id="btnReportCancel">Cancel</button>
+    </div>
+    <div id="reportStatus" class="hint"></div>
+  </div>
+</div>
+
+<!-- ===== MATCH-END PODIUM ===== -->
+<div id="podium" class="screen hidden">
+  <div class="podium-box">
+    <h1 id="podTitle">VICTORY</h1>
+    <p id="podSub"></p>
+    <div id="podTop3" class="pod-top3"></div>
+    <div id="podYou" class="pod-you"></div>
+    <div id="podXp" class="pod-xp"></div>
+    <div class="row"><button id="btnPodMenu" class="primary">Back to menu</button></div>
+  </div>
+</div>
+
+<!-- ===== IN-GAME CHAT ===== -->
+<div id="gameChat"><div id="gameChatLog"></div></div>
+
+<!-- ===== SCOREBOARD ===== -->
+<div id="scoreboard" class="screen hidden">
+  <div class="sb-box">
+    <h2>SCOREBOARD <span id="sbRound"></span></h2>
+    <div id="sbFfa" class="hidden"><div class="sb-team ct"><h3>FFA</h3><div id="sbFfaRows"></div></div></div>
+    <div class="sb-cols" id="sbTeams"></div>
+  </div>
+</div>
+
+<!-- ===== HUD ===== -->
+<div id="hud" class="hidden">
+  <div id="fps" class="hidden">60</div>
+  <div id="crosshair"><span class="ch t"></span><span class="ch b"></span><span class="ch l"></span><span class="ch r"></span><span class="ch dot"></span></div>
+  <div id="scope"><div class="circle"></div><div class="lh"></div><div class="lv"></div></div>
+  <div id="topbar">
+    <span id="hudT" class="score t">0</span>
+    <span id="hudPhase">warmup</span>
+    <span id="hudCT" class="score ct">0</span>
+  </div>
+  <div id="timer">0:00</div>
+  <div id="bombBar" class="hidden"><div id="bombFill"></div><span id="bombText">PLANTING</span></div>
+  <div id="killfeed"></div>
+  <div id="centerMsg"></div>
+  <canvas id="minimap" width="176" height="176"></canvas>
+  <div id="hitmark" class="hidden"><span></span><span></span></div>
+  <div id="hitDir"></div>
+  <div id="reloadBar" class="hidden"><div id="reloadFill"></div><span>RELOADING</span></div>
+  <div id="confirm" class="hidden"></div>
+  <div id="bottombar">
+    <div id="hpArmor"><b id="hp">100</b><small>HP</small><b id="ap">0</b><small>AP</small>
+      <div id="staminaBar"><div id="staminaFill"></div></div>
+    </div>
+    <div id="money">$800</div>
+    <div id="weapon">
+      <div id="ammoBig"><b id="ammoMag">20</b><span id="ammoRes">/ 60</span></div>
+      <div id="wName">Glock</div>
+      <div id="slots"><span id="slot1"></span><span id="slot2"></span><span id="slot3">knife</span></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/addons/": "/node_modules/three/examples/jsm/" } }
+</script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
