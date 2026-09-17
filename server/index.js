@@ -43,7 +43,8 @@ const server = http.createServer((req, res) => {
   if (!fp.startsWith(baseDir)) { res.writeHead(403); res.end('forbidden'); return; }
   fs.readFile(fp, (err, data) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    // no-cache on everything: players must never run stale JS between deploys
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
     res.end(data);
   });
 });

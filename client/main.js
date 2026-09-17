@@ -386,6 +386,7 @@ let worldBuiltFor = -1;
 let worldMapName = null;
 let myId = null;
 let inRoom = false;
+let queuedSelfHeal = null;   // requeue timer: never let "in queue…" hang forever
 let roomKind = null;
 const worldPlayers = new Map();
 const stateList = new Map();   // id -> latest state row (names for killfeed)
@@ -490,12 +491,21 @@ function onMsg(m) {
     case 'hello-ok': break;
     case 'queued':
       ui.status.textContent = 'In queue… waiting for players (bots will fill)';
+      // safety net: if we're still not in a match after 12s, leave and requeue
+      // once — heals any one-off race instead of waiting forever
+      if (!queuedSelfHeal) {
+        queuedSelfHeal = setTimeout(() => {
+          queuedSelfHeal = null;
+          if (!inRoom) { net.queue(false); net.hello(localStorage.getItem('sp_name') || 'Player'); net.queue(true, { map: ui.mapPick.value || undefined, mode: ui.modeSelect.value }); ui.status.textContent = 'Retrying matchmaking…'; }
+        }, 12000);
+      }
       break;
     case 'joined':
       inRoom = true;
       roomKind = m.kind;
       roomCode = m.room;
       isHost = !!(m.host);
+      if (queuedSelfHeal) { clearTimeout(queuedSelfHeal); queuedSelfHeal = null; }
       ui.menu.classList.add('hidden');
       ui.hud.classList.remove('hidden');
       if (m.kind === 'custom') showLobby();
