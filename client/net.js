@@ -15,6 +15,7 @@ export class Net {
     this.ws.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
       if (m.t === 'welcome') { this.id = m.id; this.onMsg(m); return; }
+      if (m.t === 'pong') { this.onPong(m.ts); return; }
       this.onMsg(m);
     };
   }
@@ -45,6 +46,11 @@ export class Net {
   startSending() {
     if (this.queueTimer) return;
     this.lastSent = { mx: 9, mz: 9, jump: 9, fire: 9, zoom: 9, yaw: 9, pitch: 9, sprint: 9, slide: 9, crouch: 9 };
+    // RTT probe: one tiny ping every 2s -> pong echo -> this.rtt (ms)
+    this.pingTimer = setInterval(() => {
+      if (!this.connected) return;
+      this.send({ t: 'ping', ts: performance.now() });
+    }, 2000);
     this.queueTimer = setInterval(() => {
       if (!this.connected) return;
       const i = this.pendingInput, l = this.lastSent;
@@ -59,7 +65,15 @@ export class Net {
 
   stopSending() {
     clearInterval(this.queueTimer);
+    clearInterval(this.pingTimer);
     this.queueTimer = null;
+    this.pingTimer = null;
+  }
+
+  onPong(ts) {
+    if (typeof ts !== 'number' || !ts) return;
+    this.rtt = Math.round(performance.now() - ts);
+    if (this.onRtt) this.onRtt(this.rtt);
   }
 
   send(obj) { if (this.connected && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj)); }

@@ -69,6 +69,7 @@ const ui = {
   reloadBar: $('reloadBar'), reloadFill: $('reloadFill'), confirm: $('confirm'),
   chatLog: $('chatLog'), chatInput: $('chatInput'), btnChatSend: $('btnChatSend'), gameChatLog: $('gameChatLog'),
   btnLobbyReady: $('btnLobbyReady'), lobbyReadyCount: $('lobbyReadyCount'),
+  netStatAnchor: $('hudTopRight'),
   podium: $('podium'), podTitle: $('podTitle'), podSub: $('podSub'), podTop3: $('podTop3'), podYou: $('podYou'), podXp: $('podXp'), btnPodMenu: $('btnPodMenu'),
   pcLevel: $('pcLevel'), pcRank: $('pcRank'), pcBar: $('pcBar'), pcFill: $('pcFill'), pcXp: $('pcXp'), pcKd: $('pcKd'), pcWins: $('pcWins'),
   playSel: $('playSel'),
@@ -470,6 +471,14 @@ function positionSelfName() {
 // ---------- net ----------
 const net = new Net(onMsg);
 net.startSending();
+// live connection readout for the HUD (ms + quality word)
+net.onRtt = (ms) => {
+  const el = document.getElementById('netStat');
+  if (!el) return;
+  const q = ms < 60 ? 'good' : ms < 120 ? 'ok' : 'bad';
+  el.textContent = ms + ' ms';
+  el.className = 'netstat ' + q;
+};
 
 function onMsg(m) {
   switch (m.t) {

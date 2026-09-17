@@ -155,7 +155,7 @@ function route(client, m) {
       client.send({ t: 'report-ok' });
       break;
 
-    case 'ping': client.send({ t: 'pong' }); break;
+    case 'ping': client.send({ t: 'pong', ts: typeof m.ts === 'number' ? m.ts : 0 }); break;   // RTT echo
   }
 }
 
