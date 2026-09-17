@@ -21,7 +21,7 @@ import { SKINS, getSelectedSkin, setSelectedSkin, skinById, isSkinUnlocked, skin
 import { OP_SKINS, WEAPON_SKINS, NAME_COLORS, owned, equipped, purchase, equip, earnMatchCredits, credits, ownedOutfits, equippedOutfit, equipOutfit, purchaseOutfit } from './shop.js';
 import { OUTFITS } from '../shared/outfits.js';
 const OUTFIT_LIST = Object.values(OUTFITS);
-import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, setBackdropOutfit, emoteHero, beginInspect, inspectRotate, inspectZoom } from './backdrop.js';
+import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, setBackdropOutfit, setBackdropGunColor, emoteHero, beginInspect, inspectRotate, inspectZoom } from './backdrop.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- DOM ----------
@@ -1840,7 +1840,45 @@ function renderShopInner() {
       renderShop();
     };
   }
+  // ---- LIVE PREVIEW: hover/tap a card -> try it on the hero instantly ----
+  // (own OR locked — you should see what you'd be buying). Leaving the shop
+  // or clicking EQUIP restores the real equipped loadout.
+  const previewSkin = (s) => { setBackdropSkin(s.body, s.accent); };
+  const previewOutfit = (oid) => { setBackdropOutfit(oid); applySkinToHero(); };
+  const previewWeapon = (w) => { setBackdropGunColor(w.metal); setViewmodelFinish(w.id); };
+  const previewName = (n) => {
+    const hn = document.getElementById('heroName');
+    if (hn) hn.style.color = n.css || '';
+    const tag = document.getElementById('heroTeam');
+    if (tag) tag.style.color = n.css || '';
+  };
+  const restorePreview = restoreShopPreview;
+  for (const el of ui.shopItems.querySelectorAll('.shop-card')) {
+    const kind = el.querySelector('[data-kind]')?.dataset.kind;
+    if (!kind) continue;
+    const id = el.querySelector('[data-id]')?.dataset.id;
+    const on = () => {
+      if (kind === 'skin') { const s = skinById(id); if (s) previewSkin(s); }
+      else if (kind === 'outfit') previewOutfit(id);
+      else if (kind === 'weapon') { const w = WEAPON_SKINS.find(x => x.id === id); if (w) previewWeapon(w); }
+      else if (kind === 'name') { const n = NAME_COLORS.find(x => x.id === id); if (n) previewName(n); }
+    };
+    el.addEventListener('mouseenter', on);
+    el.addEventListener('click', on);       // touch: tap the card to preview
+  }
 }
+// leaving the shop (or its item list) puts the hero back in your equipped gear
+// — registered ONCE here, not per render (per-render would stack listeners)
+function restoreShopPreview() {
+  applySkinToHero();
+  setBackdropGunColor(null);
+  setViewmodelFinish(equipped().weapon);
+  const hn = document.getElementById('heroName');
+  if (hn) hn.style.color = '';
+  const tag = document.getElementById('heroTeam');
+  if (tag) tag.style.color = '';
+}
+if (ui.shopItems) ui.shopItems.addEventListener('mouseleave', restoreShopPreview);
 function applyShopCosmetics() {
   const eq = equipped();
   // operator skin -> hero + skin row + broadcast (only if it changed)
@@ -1861,8 +1899,10 @@ function applyShopCosmetics() {
 let myWeaponFinish = 'stock';
 function toggleShop(force) {
   const want = force !== undefined ? force : ui.shopScreen.classList.contains('hidden');
+  const wasOpen = !ui.shopScreen.classList.contains('hidden');
   ui.shopScreen.classList.toggle('hidden', !want);
   if (want) renderShop();
+  else if (wasOpen) restoreShopPreview();
 }
 ui.btnShopClose.onclick = () => toggleShop(false);
 // STORE button: wired twice on purpose (direct + delegated) so nothing —

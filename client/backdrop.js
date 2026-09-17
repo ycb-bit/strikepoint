@@ -342,6 +342,20 @@ export function setBackdropActive(v) { active = v; if (v) ensureHero(); }
 // lobby gestures: the hero plays the same arm animations as in-game avatars
 export function emoteHero(kind) { if (hero) triggerEmote(hero, kind); }
 
+// shop preview: repaint the hero's rifle (null = back to stock steel)
+let heroGunMats = null;
+export function setBackdropGunColor(hex) {
+  if (!hero || !hero.userData.gun) return;
+  const gun = hero.userData.gun;
+  if (hex == null) { for (const part of gun.children) part.material = part.userData.stockMat || part.material; return; }
+  if (!heroGunMats) heroGunMats = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  heroGunMats.color.setHex(hex);
+  for (const part of gun.children) {
+    if (!part.userData.stockMat) part.userData.stockMat = part.material;   // remember factory look
+    part.material = heroGunMats;
+  }
+}
+
 // outfit swap for the hero (structural clothing change -> rebuild the rig)
 export function setBackdropOutfit(outfitId) {
   heroOutfit = outfitId;

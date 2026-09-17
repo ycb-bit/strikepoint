@@ -81,7 +81,15 @@ wss.on('connection', (ws, req) => {
     try { m = JSON.parse(raw); } catch { return; }
     if (!m || typeof m !== 'object' || typeof m.t !== 'string') return;
     const n = nowMs();
-    if (n - (client.lastMsgAt || 0) < 15) return;   // >66 msg/s from one client: drop
+    if (n - (client.lastMsgAt || 0) < 10) {   // flood guard: >100 msg/s from one client
+      // control messages must NEVER be dropped or delayed — losing a queue/create/join
+      // wedges the client on a loading screen forever. They are tiny and rare,
+      // so let them through; throttle only the high-frequency spam (input/chat).
+      if (m.t === 'queue' || m.t === 'unqueue' || m.t === 'create' || m.t === 'join' || m.t === 'hello' || m.t === 'ping') {
+        try { route(client, m); } catch (e) { console.error('route error', e); }
+      }
+      return;
+    }
     client.lastMsgAt = n;
     try { route(client, m); } catch (e) { console.error('route error', e); }
   });
