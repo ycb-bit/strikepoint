@@ -1,7 +1,7 @@
 // Strikepoint — tuning constants shared by client and server.
 
 export const TICK_MS = 33;         // server sim step
-export const SNAPSHOT_MS = 66;     // network snapshot rate (doubled snapshot density)
+export const SNAPSHOT_MS = 50;     // network snapshot rate — 20/s (interpolation adapts automatically)
 export const CLIENT_INPUT_MS = 22; // client sends input every ~45fps worth (under tick rate)
 export const WORLD_HALF = 32;
 

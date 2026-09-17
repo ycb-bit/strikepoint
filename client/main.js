@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { createMap } from '../shared/map.js';
-import { WEAPONS, TEAM, MAX_PLAYERS, PLAYER_EYE, MOVE_SPEED, PLAYER_RADIUS, PLAYER_HEIGHT, JUMP_VEL, GRAVITY, FFA_KILL_LIMIT, TDM_KILL_LIMIT, SLIDE_TIME, SLIDE_COOLDOWN, CROUCH_EYE } from '../shared/constants.js';
+import { WEAPONS, TEAM, MAX_PLAYERS, PLAYER_EYE, MOVE_SPEED, PLAYER_RADIUS, PLAYER_HEIGHT, JUMP_VEL, GRAVITY, FFA_KILL_LIMIT, TDM_KILL_LIMIT, SLIDE_TIME, SLIDE_COOLDOWN, CROUCH_EYE, SNAPSHOT_MS } from '../shared/constants.js';
 import { movePlayer, trySlide } from '../shared/sim.js';
 import { WEAPONS as W } from '../shared/constants.js';
 import { Net } from './net.js';
