@@ -532,8 +532,16 @@ function onMsg(m) {
       }
       break;
     case 'disconnected':
-      ui.connDot.textContent = 'disconnected';
-      ui.connDot.className = 'dot err';
+      ui.connDot.textContent = 'reconnecting…';
+      ui.connDot.className = 'dot warn';
+      break;
+    case 'ws-open':
+      // socket re-established (e.g. Render free-tier wake-up): re-announce who
+      // we are and re-enter whatever we were doing so nothing gets stuck
+      ui.connDot.textContent = 'connected';
+      ui.connDot.className = 'dot ok';
+      net.hello(localStorage.getItem('sp_name') || 'Player');
+      if (inRoom && roomCode) net.joinRoom(roomCode);
       break;
   }
 }

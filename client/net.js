@@ -1,6 +1,9 @@
 // Strikepoint client — WebSocket networking + input batching.
-// Sends input at ~45Hz (batched, change-driven), receives snapshots (~15Hz),
-// applies snapshot-rate-aware interpolation (main.js).
+// Sends input at ~45Hz (batched, change-driven), receives snapshots (~15-20Hz).
+// Robust for sleepy hosts (Render free tier): outbound messages sent while the
+// socket is connecting are buffered and flushed on open; drops auto-reconnect
+// with backoff and re-announce hello/queue so matchmaking can't get silently
+// stuck when the connection blips mid-queue.
 
 export class Net {
   constructor(onMsg) {
@@ -9,9 +12,32 @@ export class Net {
     this.id = null;
     this.pendingInput = { mx: 0, mz: 0, jump: false, fire: false, zoom: false, yaw: 0, pitch: 0, sprint: false, slide: false, crouch: false };
     this.queueTimer = null;
+    this.pingTimer = null;
+    this.retries = 0;
+    this.userClosed = false;
+    this.pending = [];          // outbound buffer while the socket is connecting
+    this.connect();
+  }
+
+  connect() {
     this.ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-    this.ws.onopen = () => { this.connected = true; };
-    this.ws.onclose = () => { this.connected = false; this.onMsg({ t: 'disconnected' }); };
+    this.ws.onopen = () => {
+      const first = this.retries === 0;
+      this.connected = true;
+      this.retries = 0;
+      // flush anything sent while connecting (queue/create/join can't be lost now)
+      const p = this.pending; this.pending = [];
+      for (const o of p) this.send(o);
+      if (!first) this.onMsg({ t: 'ws-open' });   // reconnect: let the app resync
+    };
+    this.ws.onclose = () => {
+      if (this.userClosed) return;
+      this.connected = false;
+      this.onMsg({ t: 'disconnected' });
+      // auto-reconnect with backoff (500ms -> 5s)
+      this.retries++;
+      setTimeout(() => this.connect(), Math.min(5000, 400 * this.retries));
+    };
     this.ws.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
       if (m.t === 'welcome') { this.id = m.id; this.onMsg(m); return; }
@@ -76,5 +102,9 @@ export class Net {
     if (this.onRtt) this.onRtt(this.rtt);
   }
 
-  send(obj) { if (this.connected && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj)); }
+  send(obj) {
+    if (this.connected && this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj));
+    else if (this.ws && this.ws.readyState === 0 && this.pending.length < 50) this.pending.push(obj);   // still connecting: buffer
+    // readyState 3 (closed): drop — reconnect will resync
+  }
 }
