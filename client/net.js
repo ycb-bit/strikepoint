@@ -19,7 +19,14 @@ export class Net {
     };
   }
 
-  hello(name) { this.send({ t: 'hello', name, sk: localStorage.getItem('sp_skin') || 'default' }); }
+  hello(name) {
+    let wf = 'stock', nc = 'none';
+    try {
+      const p = JSON.parse(localStorage.getItem('sp_profile_v1') || '{}');
+      wf = p.eqWeapon || 'stock'; nc = p.eqName || 'none';
+    } catch {}
+    this.send({ t: 'hello', name, sk: localStorage.getItem('sp_skin') || 'default', wf, nc });
+  }
 
   queue(on = true, pref) { this.send({ t: on ? 'queue' : 'unqueue', ...pref }); }
   createRoom(bots, map, mode, rules) { this.send({ t: 'create', bots, map, mode, rules }); }

@@ -3,6 +3,7 @@
 // recoil kick, walk bob, reload dip, draw animation — all cheap transforms.
 
 import * as THREE from 'three';
+import { WEAPON_SKINS } from './shop.js';
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const mat = (c) => new THREE.MeshBasicMaterial({ color: c });
@@ -133,8 +134,8 @@ export function buildViewmodel(scene) {
   vmRoot = new THREE.Group();
   vmGun = new THREE.Group();
   // hands
-  const handL = new THREE.Mesh(BOX, M.skin); handL.scale.set(0.05, 0.05, 0.10); handL.position.set(-0.02, -0.06, -0.10);
-  const handR = new THREE.Mesh(BOX, M.skin); handR.scale.set(0.05, 0.05, 0.10); handR.position.set(0.02, -0.07, 0.04);
+  const handL = new THREE.Mesh(BOX, M.skin); handL.scale.set(0.05, 0.05, 0.10); handL.position.set(-0.02, -0.06, -0.10); handL.userData.isHand = true;
+  const handR = new THREE.Mesh(BOX, M.skin); handR.scale.set(0.05, 0.05, 0.10); handR.position.set(0.02, -0.07, 0.04); handR.userData.isHand = true;
   vmGun.add(handL, handR);
   // muzzle flash (hidden)
   vmFlash = new THREE.Mesh(BOX, M.flash);
@@ -155,8 +156,8 @@ export function setViewmodelWeapon(name) {
     const c = vmGun.children.pop();
     // geometries are shared; dispose nothing
   }
-  const handL = new THREE.Mesh(BOX, M.skin); handL.scale.set(0.05, 0.05, 0.10); handL.position.set(-0.02, -0.06, -0.10);
-  const handR = new THREE.Mesh(BOX, M.skin); handR.scale.set(0.05, 0.05, 0.10); handR.position.set(0.02, -0.07, 0.04);
+  const handL = new THREE.Mesh(BOX, M.skin); handL.scale.set(0.05, 0.05, 0.10); handL.position.set(-0.02, -0.06, -0.10); handL.userData.isHand = true;
+  const handR = new THREE.Mesh(BOX, M.skin); handR.scale.set(0.05, 0.05, 0.10); handR.position.set(0.02, -0.07, 0.04); handR.userData.isHand = true;
   vmGun.add(handL, handR);
   vmFlash = new THREE.Mesh(BOX, M.flash);
   vmFlash.scale.set(0.09, 0.09, 0.12); vmFlash.visible = false;
@@ -166,6 +167,7 @@ export function setViewmodelWeapon(name) {
   for (const [x, y, z, sx, sy, sz, m2, isBarrel] of def.parts) {
     const mesh = new THREE.Mesh(BOX, m2);
     mesh.position.set(x, y, z); mesh.scale.set(sx, sy, sz);
+    mesh.userData.stockMat = m2;   // remember the factory finish (skin repaint restores it)
     vmGun.add(mesh);
     if (isBarrel) mesh.userData.isBarrel = true;
   }
@@ -179,6 +181,42 @@ export function setViewmodelWeapon(name) {
   }
   vmGun.userData.barrelLen = def.len;
   currentGun = name;
+  paintGun();
+}
+
+// ---- weapon finishes (shop cosmetics) ----
+let activeFinish = 'stock', finMetal = null, finAccent = null;
+export function setViewmodelFinish(id) {
+  const f = WEAPON_SKINS.find(w => w.id === id) || WEAPON_SKINS[0];
+  activeFinish = f.id;
+  if (f.metal == null) { finMetal = null; finAccent = null; }
+  else {
+    finMetal = new THREE.MeshBasicMaterial({ color: f.metal });
+    finAccent = new THREE.MeshBasicMaterial({ color: f.accent });
+  }
+  paintGun();
+}
+function paintGun() {
+  if (!vmGun) return;
+  for (const c of vmGun.children) {
+    if (c === vmFlash || c.userData.isHand || !c.userData.stockMat) continue;
+    if (!finMetal) { c.material = c.userData.stockMat; continue; }   // stock finish
+    // barrels keep their dark steel; mags/grips go accent, everything else metal
+    c.material = c.userData.isBarrel ? c.userData.stockMat
+      : (c.position.y < -0.05 && Math.abs(c.position.x) < 0.06 ? finAccent : finMetal);
+  }
+}
+
+// world-avatar gun finish: repaint the rifle parts of a third-person rig
+const finishCache = new Map();
+export function applyAvatarFinish(grp, finishId) {
+  const f = WEAPON_SKINS.find(w => w.id === finishId);
+  const gun = grp && grp.userData && grp.userData.gun;
+  if (!gun) return;
+  if (!f || f.metal == null) { for (const part of gun.children) part.material = M.black; return; }
+  if (!finishCache.has(f.id)) finishCache.set(f.id, new THREE.MeshBasicMaterial({ color: f.metal }));
+  const mat = finishCache.get(f.id);
+  for (const part of gun.children) part.material = mat;
 }
 
 export function muzzleFlash() {
@@ -258,31 +296,39 @@ export function startReloadAnim(durMs = 2200) {
 }
 
 // ---------- third-person avatars ----------
-// Rig: legs have hip pivot + KNEE pivot (two segments); arms/head/gun are
-// parented to the TORSO so crouch/slide move the whole upper body.
+// Rig v2 — round body parts, no box-people: sphere head + rounded helmet,
+// rounded torso (cylinder + dome cap), two-segment arms with elbows,
+// two-segment legs. Head/arms/gun parented to TORSO so crouch/slide move
+// the whole upper body.
 export function buildAvatar(teamMat) {
   const grp = new THREE.Group();
   // torso group = everything above the hips
   const torso = new THREE.Group(); torso.position.y = 0.95;
-  // torso + gear
-  const body = new THREE.Mesh(BOX, teamMat); body.scale.set(0.56, 0.62, 0.34); body.name = 'torso';
-  // slim plate carrier: covers the chest front but leaves the body colorway visible
+  // rounded torso: short cylinder (fills sides) + half-sphere cap (fills top)
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.25, 0.52, 12), teamMat); body.position.y = 0.02; body.name = 'torso';
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), teamMat); cap.position.y = 0.27;
+  // slim plate carrier: covers the chest front but leaves the colorway visible
   const vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.06, 0.02); vest.scale.set(0.40, 0.40, 0.40);
-  const pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.42, 0.40, 0.14);
-  const belt = new THREE.Mesh(BOX, M.boots); belt.position.y = -0.29; belt.scale.set(0.58, 0.09, 0.36);
-  // head + helmet (parented to torso so crouch carries it)
-  const head = new THREE.Mesh(BOX, M.skin); head.position.y = 0.52; head.scale.set(0.30, 0.28, 0.30);
-  const helmet = new THREE.Mesh(BOX, teamMat); helmet.position.y = 0.65; helmet.scale.set(0.36, 0.16, 0.36);
-  const visor = new THREE.Mesh(BOX, M.gun); visor.position.set(0, 0.52, -0.155); visor.scale.set(0.26, 0.09, 0.02);
-  // arms bent forward holding the weapon (in torso space)
+  const pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.36, 0.40, 0.14);
+  const belt = new THREE.Mesh(BOX, M.boots); belt.position.y = -0.28; belt.scale.set(0.50, 0.09, 0.44);
+  // head: sphere + rounded helmet shell + visor plate
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 14, 12), M.skin); head.position.y = 0.50;
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), teamMat);
+  helmet.position.y = 0.535; helmet.scale.set(1, 0.82, 1.08);
+  const visor = new THREE.Mesh(BOX, M.gun); visor.position.set(0, 0.50, -0.135); visor.scale.set(0.22, 0.08, 0.05);
+  // arms: shoulder pivot -> upper arm -> ELBOW pivot -> forearm + hand
   const mkArm = (x) => {
-    const pivot = new THREE.Group(); pivot.position.set(x, 0.27, 0);
-    const upper = new THREE.Mesh(BOX, teamMat); upper.position.set(0, -0.14, -0.10); upper.scale.set(0.13, 0.34, 0.14);
-    const hand = new THREE.Mesh(BOX, M.skin); hand.position.set(0, -0.02, -0.28); hand.scale.set(0.11, 0.11, 0.14);
-    pivot.add(upper, hand); pivot.name = x < 0 ? 'armL' : 'armR';
-    return pivot;
+    const shoulder = new THREE.Group(); shoulder.position.set(x, 0.22, 0);
+    const upper = new THREE.Mesh(BOX, teamMat); upper.position.set(0, -0.12, -0.04); upper.scale.set(0.13, 0.30, 0.15);
+    const elbow = new THREE.Group(); elbow.position.set(0, -0.24, -0.08);
+    const fore = new THREE.Mesh(BOX, teamMat); fore.position.set(0, -0.03, -0.14); fore.scale.set(0.11, 0.12, 0.30);
+    const hand = new THREE.Mesh(BOX, M.skin); hand.position.set(0, -0.03, -0.28); hand.scale.set(0.10, 0.10, 0.12);
+    elbow.add(fore, hand); shoulder.add(upper, elbow);
+    shoulder.userData.elbow = elbow;
+    shoulder.name = x < 0 ? 'armL' : 'armR';
+    return shoulder;
   };
-  const armL = mkArm(-0.34), armR = mkArm(0.34);
+  const armL = mkArm(-0.32), armR = mkArm(0.32);
   // rifle in both hands (in torso space)
   const gun = new THREE.Group(); gun.position.set(0.06, 0.17, -0.30);
   const receiver = new THREE.Mesh(BOX, M.black); receiver.scale.set(0.07, 0.11, 0.55);
@@ -322,7 +368,20 @@ export function setAvatarWeapon(grp, weaponName) {
 export function buildNameLabel(text) {
   const cv = document.createElement('canvas');
   cv.width = 256; cv.height = 64;
+  paintNameLabel(cv, text, '#eef3f8');
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  sp.scale.set(1.9, 0.48, 1);
+  sp.position.y = 2.05;
+  sp.userData.text = text;   // kept so name-color cosmetics can repaint it
+  return sp;
+}
+
+// draw (or redraw) a name onto a 256x64 label canvas — shared by build + recolor
+export function paintNameLabel(cv, text, color) {
   const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.font = 'bold 34px system-ui';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(8,10,14,0.55)';
@@ -330,14 +389,8 @@ export function buildNameLabel(text) {
   ctx.beginPath();
   ctx.roundRect((256 - w) / 2, 8, w, 48, 10);
   ctx.fill();
-  ctx.fillStyle = '#eef3f8';
+  ctx.fillStyle = color || '#eef3f8';
   ctx.fillText(text, 128, 44);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-  sp.scale.set(1.9, 0.48, 1);
-  sp.position.y = 2.05;
-  return sp;
 }
 
 export function setViewmodelVisible(v) { if (vmRoot) vmRoot.visible = v; }

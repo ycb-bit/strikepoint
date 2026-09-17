@@ -124,8 +124,15 @@ export class Room {
 
   addHuman(client, name) {
     const clientId = client.id;
-    this.clients.set(clientId, { send: client.send, sendRaw: client.sendRaw, name: name || client.name || 'Player', raw: client, skin: client.skin || 'default' });
+    this.clients.set(clientId, { send: client.send, sendRaw: client.sendRaw, name: name || client.name || 'Player', raw: client, skin: client.skin || 'default', wfin: client.wfin || 'stock', ncolor: client.ncolor || 'none' });
     const g = this.game;
+    // reconnect: if the sim still holds this player (seat held after a drop),
+    // the same client id resumes it — clear the pending removal timer
+    if (this.seatTimers && this.seatTimers.has(clientId)) {
+      clearTimeout(this.seatTimers.get(clientId));
+      this.seatTimers.delete(clientId);
+      this.broadcast({ t: 'note', text: `${name || 'Player'} reconnected` });
+    }
     if (!g.players.has(clientId)) {
       // pick the team with fewer players (prefer non-full)
       const counts = [0, 0];
@@ -143,6 +150,34 @@ export class Room {
     // tell the client which room + their id (custom-room creator gets host powers)
     client.send({ t: 'joined', room: this.code, kind: this.kind, id: clientId, host: this.kind === 'custom' && this.owner === clientId });
     this.broadcastState();
+  }
+
+  // cosmetic re-announce (hello after an equip): nudge the next snapshot + chat ping
+  announceCosmetics(clientId) {
+    const c = this.clients.get(clientId);
+    if (!c) return;
+    this.nextSnap = 0;   // broadcast immediately with fresh wf/nc fields
+  }
+
+  // keep a disconnected human's slot (and body) for `ms` so a refresh can resume
+  holdSeat(clientId, ms) {
+    this.clients.delete(clientId);
+    this.seatTimers = this.seatTimers || new Map();
+    const g = this.game;
+    if (!g.players.has(clientId)) return;
+    const t = setTimeout(() => {
+      this.seatTimers.delete(clientId);
+      const p = g.players.get(clientId);
+      if (p) { removePlayer(g, clientId); clearBotState(clientId); }
+      this.rebalanceToBots();
+      if (this.clients.size === 0) {
+        if (this.kind === 'custom') {
+          clearTimeout(this.closeTimer);
+          this.closeTimer = setTimeout(() => this.destroy(), 60_000);
+        } else this.destroy();
+      } else this.broadcast({ t: 'note', text: 'A player left the match' });
+    }, ms);
+    this.seatTimers.set(clientId, t);
   }
 
   removeHuman(clientId) {
@@ -214,6 +249,8 @@ export class Room {
         hp: p.hp, ar: p.armor, k: p.kills, d: p.deaths, m: p.money,
         st: Math.round(p.stamina || 0), cr: p.crouching ? 1 : 0, sp: p.input && p.input.sprint ? 1 : 0,
         sk: !p.bot ? (this.clients.get(p.id)?.skin || 'default') : 'default',
+        wf: !p.bot ? (this.clients.get(p.id)?.wfin || 'stock') : 'stock',
+        nc: !p.bot ? (this.clients.get(p.id)?.ncolor || 'none') : 'none',
         al: p.alive ? 1 : 0, w: p.weapons.primary || p.weapons.secondary || 'knife',
         pw: p.weapons.primary || null, sw: p.weapons.secondary || null,
         am: ammoText(p),
@@ -334,6 +371,9 @@ export class Room {
     this.destroyed = true;
     clearInterval(this.timer);
     this.timer = null;
+    clearTimeout(this.closeTimer);
+    if (this.seatTimers) for (const t of this.seatTimers.values()) clearTimeout(t);
+    this.seatTimers = null;
     rooms.delete(this.code);
     for (const id of this.botIds) clearBotState(id);
     this.onEmpty(this.code);
@@ -411,3 +451,27 @@ export function roomList() {
 
 export function getRoom(code) { return rooms.get(String(code)) || null; }
 export function allRooms() { return rooms; }
+
+// ---- background GC (started only by the real server, not by tests) ----
+export function startGc() {
+  setInterval(() => {
+    const now = Date.now();
+    // 1) rooms with no humans: custom rooms already self-close via closeTimer;
+    //    any room whose loop tick went stale (crashed/hung) gets force-closed.
+    for (const r of [...rooms.values()]) {
+      if (r.humanCount() === 0 && !r.closeTimer && r.kind === 'custom' && !r.destroyed) {
+        clearTimeout(r.closeTimer);
+        r.closeTimer = setTimeout(() => r.destroy(), 30_000);
+      }
+      if (!r.destroyed && r.timer && now - r.lastTick > 10_000) {
+        console.log(`[gc] room ${r.code} tick stale — destroying`);
+        r.destroy();
+      }
+    }
+    // 2) people stuck in queue without a socket (dead ws edge case)
+    for (const c of [...queue]) {
+      try { if (c.ws.readyState !== 1) { queue.delete(c); } } catch { queue.delete(c); }
+    }
+    if (queue.size === 0 && formTimer) { clearTimeout(formTimer); formTimer = null; }
+  }, 30_000).unref();
+}

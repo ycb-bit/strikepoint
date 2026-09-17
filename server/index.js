@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { joinQueue, leaveQueue, createRoom, joinRoom, roomList, allRooms } from './rooms.js';
+import { joinQueue, leaveQueue, createRoom, joinRoom, roomList, allRooms, startGc } from './rooms.js';
 import { MAX_PLAYERS } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -51,38 +51,67 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 const clients = new Map(); // ws -> client info
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // basic DoS hygiene: cap simultaneous sockets per remote IP
+  const ip = (req && req.socket && req.socket.remoteAddress) || '?';
+  const now = Date.now();
+  for (const [k, v] of connLog) if (now - v > 60_000) connLog.delete(k);
+  const seen = connLog.get(ip) || { n: 0, first: now };
+  if (seen.n >= 12 && now - seen.first < 60_000) { try { ws.close(); } catch {} return; }
+  seen.n++; connLog.set(ip, seen);
+
   const client = {
     ws, id: 'u' + Math.random().toString(36).slice(2, 10),
     name: null,
     room: null,
     queued: false,
+    tokens: new Set(),        // resumes seen for this connection
+    alive: true,              // for ws-level liveness probing
     send(obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); },
     sendRaw(str) { if (ws.readyState === 1) ws.send(str); },
   };
   clients.set(ws, client);
 
   ws.on('message', (raw) => {
+    // guard: JSON object, size cap, and a per-connection rate limit
+    if (typeof raw !== 'string' && !(raw instanceof ArrayBuffer) && !ArrayBuffer.isView(raw)) return;
+    if (raw.length > 4096) { try { ws.close(); } catch {} return; }   // abusive size
     let m;
     try { m = JSON.parse(raw); } catch { return; }
+    if (!m || typeof m !== 'object' || typeof m.t !== 'string') return;
+    const n = nowMs();
+    if (n - (client.lastMsgAt || 0) < 15) return;   // >66 msg/s from one client: drop
+    client.lastMsgAt = n;
     try { route(client, m); } catch (e) { console.error('route error', e); }
   });
 
   ws.on('close', () => {
     clients.delete(ws);
     if (client.queued) { leaveQueue(client); client.queued = false; }
-    if (client.room) { client.room.removeHuman(client.id); client.room = null; }
+    if (client.room) {
+      // mid-round disconnect: hold the player's slot for a short reconnect
+      // window instead of deleting them instantly
+      const room = client.room;
+      client.room = null;
+      room.holdSeat(client.id, 30_000);
+    }
   });
 
   client.send({ t: 'welcome', id: client.id, maxPlayers: MAX_PLAYERS });
 });
+const connLog = new Map();
+const nowMs = () => Date.now();
 
 function route(client, m) {
   switch (m.t) {
     case 'hello':
       client.name = String(m.name || '').slice(0, 16) || 'Player';
       client.skin = String(m.sk || 'default').slice(0, 16);
+      client.wfin = String(m.wf || 'stock').slice(0, 16);   // weapon finish (cosmetic)
+      client.ncolor = String(m.nc || 'none').slice(0, 16);  // name color (cosmetic)
       client.send({ t: 'hello-ok', name: client.name });
+      // announce cosmetics to the current room so mid-match equips apply live
+      if (client.room && client.room.announceCosmetics) client.room.announceCosmetics(client.id);
       break;
 
     case 'queue': {
@@ -130,4 +159,5 @@ function route(client, m) {
 
 server.listen(PORT, () => {
   console.log(`[strikepoint] listening on http://localhost:${PORT}  (ws at /ws)`);
+  startGc();
 });

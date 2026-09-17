@@ -148,6 +148,25 @@ button.small { font-size: 12px; padding: 6px; }
 #lookHint { position: fixed; right: 30%; top: 55%; font-size: 10px; letter-spacing: 2px;
   color: rgba(221,227,234,.4); border: none; background: none; pointer-events: none; }
 
+/* ---- shop ---- */
+.rail-btns .ghost.gold { border-color: rgba(232,163,61,.55); color: #ffce8a; }
+.shop-box { width: min(720px, 92vw); max-height: 86vh; overflow-y: auto; }
+.shop-box h2 { display: flex; justify-content: space-between; align-items: center; }
+.shop-box h2 span { color: #ffce8a; font-size: 16px; }
+.shop-hint { font-size: 11px; color: rgba(221,227,234,.55); margin-bottom: 10px; }
+#shopItems { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+#shopItems .lo-h { grid-column: 1 / -1; margin-top: 6px; }
+.shop-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.shop-card.eq { border-color: rgba(232,163,61,.6); box-shadow: 0 0 0 1px rgba(232,163,61,.35); }
+.shop-card .sw { height: 40px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); }
+.shop-card .sn { font-size: 12px; font-weight: 600; }
+.shop-card .own, .shop-card .buy { font-size: 11px; cursor: pointer; }
+.shop-card .own { color: #9fe0b5; }
+.shop-card .own.eq { color: #ffce8a; cursor: default; }
+.shop-card .buy { color: #ffd9a0; }
+.shop-card .buy.deny { color: #ff7a70; }
+
 /* self position pointer (touch aid) */
 #selfPtr { position: fixed; z-index: 30; transform: translate(-50%, -50%); display: none;
   width: 34px; height: 34px; border-radius: 50%;

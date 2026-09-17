@@ -29,6 +29,7 @@
     </div>
     <input id="nameInput" maxlength="16" placeholder="Your name" autocomplete="off">
     <div class="rail-btns">
+      <button id="btnShop" class="ghost gold">STORE</button>
       <button id="btnSettings" class="ghost">⚙</button>
       <button id="btnTutorial" class="ghost">?</button>
       <button id="btnReport" class="ghost">⚠</button>
@@ -236,6 +237,14 @@
 </div>
 
 <!-- ===== REPORT ===== -->
+<div id="shopScreen" class="screen hidden">
+  <div class="menu-box shop-box">
+    <h2>OPERATOR STORE <span id="shopCredits">0 ⚡</span></h2>
+    <p class="shop-hint">Credits are earned by playing — 25 per match, +5 per kill, +50 for a win (500/day). Cosmetics only, never power.</p>
+    <div id="shopItems"></div>
+    <button id="btnShopClose" class="ghost">Close</button>
+  </div>
+</div>
 <div id="reportBox" class="screen hidden">
   <div class="menu-box report-box">
     <h2>REPORT A PROBLEM</h2>

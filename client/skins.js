@@ -4,7 +4,10 @@
 // by profile level; selection persists in localStorage.
 
 import { loadProfile, levelFor } from './profile.js';
+import { OP_SKINS, owned } from './shop.js';
 
+// The full catalog = legacy level-unlocks + shop skins (shop.js is the source
+// of truth; keep this array for the level-gated freebies).
 export const SKINS = [
   { id: 'default',  name: 'Standard',   level: 1,  body: null,      accent: 0x3a3f46 }, // null = team color
   { id: 'arctic',   name: 'Arctic',     level: 2,  body: 0xe8eef6,  accent: 0x27435c },
@@ -27,12 +30,16 @@ const KEY = 'sp_skin';
 export function getSelectedSkin() { return localStorage.getItem(KEY) || 'default'; }
 export function setSelectedSkin(id) { localStorage.setItem(KEY, id); }
 
-export function skinById(id) { return SKINS.find(s => s.id === id) || SKINS[0]; }
+export function skinById(id) {
+  return SKINS.find(s => s.id === id) || OP_SKINS.find(s => s.id === id) || SKINS[0];
+}
 
+// unlocked = free level unlock OR owned from the shop
 export function isSkinUnlocked(id) {
   const s = skinById(id);
-  const pr = loadProfile();
-  return levelFor(pr.xp).level >= s.level;
+  if (!s) return false;
+  if (s.level && s.level > 1) return levelFor(loadProfile().xp).level >= s.level;
+  return owned().skins.includes(id);
 }
 
 // build the two materials for an avatar wearing this skin on this team

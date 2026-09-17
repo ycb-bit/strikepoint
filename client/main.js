@@ -10,7 +10,7 @@ import { movePlayer, trySlide } from '../shared/sim.js';
 import { WEAPONS as W } from '../shared/constants.js';
 import { Net } from './net.js';
 import { TOUCH_ENABLED, setTouchVisible, applyTouch, takeLookDelta, setTouchSens, consumeReloadPulse, onEmotePressed, nextEmote } from './touch.js';
-import { buildViewmodel, buildAvatar, buildNameLabel, setAvatarWeapon, setViewmodelWeapon, VIEWMODEL, updateViewmodel, startReloadAnim, setViewmodelVisible, muzzleFlash } from './viewmodel.js';
+import { buildViewmodel, buildAvatar, buildNameLabel, paintNameLabel, setAvatarWeapon, setViewmodelWeapon, setViewmodelFinish, applyAvatarFinish, VIEWMODEL, updateViewmodel, startReloadAnim, setViewmodelVisible, muzzleFlash } from './viewmodel.js';
 import { createAnimator } from './avatarAnim.js';
 import { initFx, spawnImpact, spawnBlood, spawnDamageNumber, updateFx } from './fx.js';
 import { initHpBars, acquireHpBar, releaseHpBar, positionHpBar, clearHpBars } from './hpbar.js';
@@ -18,6 +18,7 @@ import { createMinimap } from './minimap.js';
 import { triggerEmote, updateEmotes } from './emotes.js';
 import { loadProfile, levelFor, rankName, recordMatch } from './profile.js';
 import { SKINS, getSelectedSkin, setSelectedSkin, skinById, isSkinUnlocked, skinMaterials } from './skins.js';
+import { OP_SKINS, WEAPON_SKINS, NAME_COLORS, owned, equipped, purchase, equip, earnMatchCredits, credits } from './shop.js';
 import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, emoteHero } from './backdrop.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -30,6 +31,7 @@ const ui = {
   btnDoCreate: $('btnDoCreate'), joinCode: $('joinCode'), btnDoJoin: $('btnDoJoin'),
   modeSelect: $('modeSelect'), mapPick: $('mapPick'), modeSelectC: $('modeSelectC'),
   btnSettings: $('btnSettings'), settingsBox: $('settingsBox'), mapSelect: $('mapSelect'),
+  shopScreen: $('shopScreen'), shopItems: $('shopItems'), shopCredits: $('shopCredits'), btnShopClose: $('btnShopClose'),
   btnTutorial: $('btnTutorial'), tutorial: $('tutorial'), btnTutorialClose: $('btnTutorialClose'),
   btnReport: $('btnReport'), reportBox: $('reportBox'), reportText: $('reportText'),
   btnReportSend: $('btnReportSend'), btnReportCancel: $('btnReportCancel'), reportStatus: $('reportStatus'),
@@ -569,6 +571,9 @@ function applyState(m) {
           grp.userData.legR.children[0].material = sm.accent;
         }
         wp.animator = createAnimator(grp);
+        // weapon finish (shop cosmetic)
+        applyAvatarFinish(grp, p.wf || 'stock');
+        wp.wf = p.wf || 'stock';
         if (p.n) {
           if (p.id === myId) {
             // my own avatar is invisible (first-person) but keeps its sprite:
@@ -604,6 +609,7 @@ function applyState(m) {
       if (err > 2.5) { local.x = p.x; local.z = p.z; local.y = p.y; }
       mySlots = { primary: p.pw, secondary: p.sw, melee: 'knife' };
       wp.k = p.k; wp.d = p.d; wp.n = p.n; wp.al = alive; wp.tm = p.tm;
+      if (p.wf && p.wf !== wp.wf) { wp.wf = p.wf; applyAvatarFinish(wp.grp, p.wf); }
       ui.hp.textContent = p.hp;
       ui.ap.textContent = p.ar;
       ui.staminaFill.style.width = Math.max(0, Math.min(100, p.st ?? 100)) + '%';
@@ -645,6 +651,17 @@ function applyState(m) {
         wp.grp.visible = wp.al || errKeep(wp);
         wp.grp.rotation.y = wp.yaw;   // model faces -Z; sim forward is (-sin yaw, -cos yaw) — direct match
         if (wp.w !== p.w) { setAvatarWeapon(wp.grp, p.w); wp.w = p.w; }
+        if (p.wf && p.wf !== wp.wf) { wp.wf = p.wf; applyAvatarFinish(wp.grp, p.wf); }
+        if (p.nc && p.nc !== wp.nc && wp.grp) {
+          // name-color cosmetic: repaint this avatar's name label in place
+          const sprite = wp.grp.children.find(c => c.isSprite);
+          if (sprite && sprite.userData.text) {
+            const nc = NAME_COLORS.find(c => c.id === p.nc);
+            paintNameLabel(sprite.material.map.image, sprite.userData.text, nc ? nc.css : '#eef3f8');
+            sprite.material.map.needsUpdate = true;
+          }
+          wp.nc = p.nc;
+        }
       }
     }
   }
@@ -1187,9 +1204,24 @@ function showCenter(text, ms) {
   centerMsgUntil = performance.now() + ms;
 }
 
+function nameColorCss(id) {
+  if (!id || id === 'none') return '';
+  const nc = NAME_COLORS.find(c => c.id === id);
+  return nc ? nc.css : '';
+}
 function addKillfeed(by, to, weapon, headshot) {
   const div = document.createElement('div');
+  // name colors (cosmetic) — plain text otherwise (no HTML injection)
+  const byC = by === (worldPlayers.get(myId)?.n) ? equipped().name : '';
+  const toC = to === (worldPlayers.get(myId)?.n) ? equipped().name : '';
   div.textContent = `${by} ${headshot ? '☠' : '→'} ${to} (${weapon})`;
+  if (byC || toC) {
+    const s = document.createElement('span');
+    s.textContent = div.textContent;
+    s.style.color = nameColorCss(byC || toC);
+    div.textContent = '';
+    div.appendChild(s);
+  }
   ui.killfeed.prepend(div);
   while (ui.killfeed.children.length > 5) ui.killfeed.lastChild.remove();
   setTimeout(() => div.remove(), 6000);
@@ -1606,23 +1638,24 @@ for (const t of document.querySelectorAll('#mapTiles .map-tile')) {
 }
 syncTiles();
 
-// ---------- operator skin picker (hero rail) ----------
+// ---------- operator skin picker (hero rail; shop skins included) ----------
 function renderSkinRow() {
   const row = document.getElementById('skinRow');
   if (!row) return;
   const sel = getSelectedSkin();
-  row.innerHTML = SKINS.map(s => {
+  const hexOf = (n) => '#' + (n == null ? 0x3a3f46 : n).toString(16).padStart(6, '0');
+  const list = [...SKINS, ...OP_SKINS.filter(s => !SKINS.some(k => k.id === s.id))];
+  row.innerHTML = list.map(s => {
     const unlocked = isSkinUnlocked(s.id);
-    const hex = s.body == null ? '#d29a4a' : '#' + s.body.toString(16).padStart(6, '0');
+    const lock = unlocked ? '' : (s.level > 1 ? `<span class="lv">Lv ${s.level}</span>` : '<span class="lv">⚡</span>');
     return `<div class="skin-chip ${sel === s.id ? 'sel' : ''} ${unlocked ? '' : 'locked'}"
-      data-skin="${s.id}" title="${s.name}${unlocked ? '' : ' — unlock at level ' + s.level}"
-      style="background: linear-gradient(135deg, ${hex} 55%, ${'#' + s.accent.toString(16).padStart(6, '0')} 55%)">
-      ${unlocked ? '' : `<span class="lv">Lv ${s.level}</span>`}</div>`;
+      data-skin="${s.id}" title="${s.name}${unlocked ? '' : (s.level > 1 ? ' — unlock at level ' + s.level : ' — buy in the shop (' + s.price + ' ⚡)')}"
+      style="background: linear-gradient(135deg, ${hexOf(s.body)} 55%, ${hexOf(s.accent)} 55%)">${lock}</div>`;
   }).join('');
   for (const chip of row.querySelectorAll('.skin-chip')) {
     chip.onclick = () => {
       const id = chip.dataset.skin;
-      if (!isSkinUnlocked(id)) return;
+      if (!isSkinUnlocked(id)) { toggleShop(true); return; }   // locked -> open the shop
       setSelectedSkin(id);
       applySkinToHero();
       renderSkinRow();
@@ -1636,10 +1669,71 @@ function applySkinToHero() {
 }
 renderSkinRow();
 applySkinToHero();
+setViewmodelFinish(equipped().weapon);   // shop weapon finish on the viewmodel
 
 // touch: emote button cycles gestures; sensitivity follows the slider
 onEmotePressed(() => { net.action({ k: 'emote', e: nextEmote() }); });
 setTouchSens(settings.sensitivity);
+
+// ---------- shop (cosmetics marketplace) ----------
+function renderShop() {
+  if (!ui.shopItems) return;
+  const own = owned(), eq = equipped(), creds = credits();
+  ui.shopCredits.textContent = creds + ' ⚡';
+  const card = (kind, item, ownedIt, equippedIt) => {
+    const hex = (n) => '#' + (n == null ? 0x3a3f46 : n).toString(16).padStart(6, '0');
+    let swatch;
+    if (kind === 'weapon') swatch = `background: linear-gradient(135deg, ${hex(item.metal)} 55%, ${hex(item.accent)} 55%)`;
+    else if (kind === 'skin') swatch = `background: linear-gradient(135deg, ${hex(item.body)} 55%, ${hex(item.accent)} 55%)`;
+    else swatch = `background: ${item.css || '#dde3ea'}`;
+    const label = equippedIt ? '<b class="own eq">✓ EQUIPPED</b>'
+      : ownedIt ? '<b class="own" data-kind="' + kind + '" data-id="' + item.id + '" data-act="equip">OWNED — EQUIP</b>'
+      : '<b class="buy" data-kind="' + kind + '" data-id="' + item.id + '" data-act="buy">' + item.price + ' ⚡</b>';
+    return `<div class="shop-card ${equippedIt ? 'eq' : ''}">
+      <div class="sw" style="${swatch}"></div>
+      <span class="sn">${item.name}</span>${label}</div>`;
+  };
+  ui.shopItems.innerHTML =
+    '<h4 class="lo-h">OPERATOR SKINS</h4>' +
+    OP_SKINS.map(s => card('skin', s, own.skins.includes(s.id), eq.skin === s.id)).join('') +
+    '<h4 class="lo-h">WEAPON FINISHES</h4>' +
+    WEAPON_SKINS.map(w => card('weapon', w, own.weapons.includes(w.id), eq.weapon === w.id)).join('') +
+    '<h4 class="lo-h">NAME COLORS</h4>' +
+    NAME_COLORS.map(n => card('name', n, own.names.includes(n.id), eq.name === n.id)).join('');
+  for (const b of ui.shopItems.querySelectorAll('[data-act]')) {
+    b.onclick = () => {
+      const { kind, id, act } = b.dataset;
+      if (act === 'buy') {
+        const r = purchase(kind, id);
+        if (!r.ok) { b.textContent = r.why; b.classList.add('deny'); setTimeout(() => renderShop(), 1200); return; }
+      } else equip(kind, id);
+      applyShopCosmetics();
+      renderShop();
+    };
+  }
+}
+function applyShopCosmetics() {
+  const eq = equipped();
+  // operator skin -> hero + skin row + broadcast (only if it changed)
+  if (eq.skin !== getSelectedSkin()) {
+    setSelectedSkin(eq.skin);
+    applySkinToHero();
+    renderSkinRow();
+    net.hello(localStorage.getItem('sp_name') || 'Player');
+  }
+  // weapon finish -> viewmodel now; server learns via the next hello
+  setViewmodelFinish(eq.weapon);
+  myWeaponFinish = eq.weapon;
+  // name color is applied when the server echoes it back in state (p.nc)
+}
+let myWeaponFinish = 'stock';
+function toggleShop(force) {
+  const want = force !== undefined ? force : ui.shopScreen.classList.contains('hidden');
+  ui.shopScreen.classList.toggle('hidden', !want);
+  if (want) renderShop();
+}
+ui.btnShopClose.onclick = () => toggleShop(false);
+const _btnShop = document.getElementById('btnShop'); if (_btnShop) _btnShop.onclick = () => toggleShop(true);
 
 // ---------- lobby ready + chat ----------
 let iAmReady = false;
@@ -1699,8 +1793,10 @@ function maybeShowPodium() {
   const me = worldPlayers.get(myId) || { k: 0, d: 0 };
   const myHs = (myHsCount || 0);
   const res = recordMatch(me.k || 0, me.d || 0, won, myHs);
+  const cr = earnMatchCredits(me.k || 0, won);   // shop currency
   ui.podYou.innerHTML = `You: <b>${me.k || 0} kills</b> · ${me.d || 0} deaths · ${myHs} headshots`;
-  ui.podXp.innerHTML = `+${res.gained} XP` + (res.leveledUp ? ` — <span class="lvl">LEVEL UP! ${res.from} → ${res.to}</span>` : '');
+  ui.podXp.innerHTML = `+${res.gained} XP` + (res.leveledUp ? ` — <span class="lvl">LEVEL UP! ${res.from} → ${res.to}</span>` : '')
+    + ` · <span class="lvl">+${cr.got} ⚡</span>` + (cr.capped ? ' <small>(daily cap reached)</small>' : '');
   ui.podium.classList.remove('hidden');
   renderProfileCard();
   renderSkinRow();   // new level may unlock skins
