@@ -45,6 +45,7 @@ const ui = {
   setScale: $('setScale'), scaleVal: $('scaleVal'),
   setCrossSize: $('setCrossSize'), crossSizeVal: $('crossSizeVal'),
   setCrossThick: $('setCrossThick'), crossThickVal: $('crossThickVal'),
+  setFpsCap: $('setFpsCap'),
   setCrossColor: $('setCrossColor'), setCrossDot: $('setCrossDot'),
   setDmgSize: $('setDmgSize'), dmgSizeVal: $('dmgSizeVal'),
   setHpBars: $('setHpBars'), setKillfeed: $('setKillfeed'),
@@ -82,7 +83,7 @@ const BASE_FOV = 74;
 // versatile settings (persisted)
 const settings = Object.assign(
   { sensitivity: 1.0, fov: 74, volume: 0.8, showTracers: true, showDmg: true, showFps: false,
-    adsSens: 0.5, invertY: false, renderScale: 1.0,
+    adsSens: 0.5, invertY: false, renderScale: 1.0, fpsCap: 0,
     crossLen: 10, crossThick: 2, crossColor: '#d9f0ff', crossDot: true,
     dmgSize: 1.75, hpBars: true, killfeed: true },
   JSON.parse(localStorage.getItem('sp_settings') || '{}')
@@ -94,7 +95,7 @@ initBackdrop(renderer);
 function applyRenderScale() {
   // small screens (phones) get a free perf boost automatically
   const autoScale = Math.min(innerWidth, innerHeight) < 500 ? 0.7 : 1;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * settings.renderScale * autoScale);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * settings.renderScale * autoScale);
   renderer.setSize(innerWidth, innerHeight);
 }
 applyRenderScale();
@@ -946,11 +947,17 @@ function readInput(dt) {
 // ---------- rendering loop ----------
 const tmpV = new THREE.Vector3();
 let lastFrame = performance.now();
+let lastRender = 0;
 
 function frame() {
   requestAnimationFrame(frame);
   const now = performance.now();
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  // optional FPS limit: rAF still ticks at display rate, but we skip the
+  // expensive render until the next interval — saves GPU/power, steadier
+  // frame times. dt accumulates correctly across skipped ticks.
+  if (settings.fpsCap > 0 && now - lastRender < 1000 / settings.fpsCap - 1) return;
+  lastRender = now;
   lastFrame = now;
 
   if (inRoom && ui.menu.classList.contains('hidden')) readInput(dt);
@@ -1568,6 +1575,10 @@ ui.setFps.onchange = () => { settings.showFps = ui.setFps.checked; ui.fps.classL
 ui.setAdsSens.oninput = () => { settings.adsSens = +ui.setAdsSens.value; ui.adsSensVal.textContent = settings.adsSens.toFixed(2); saveSettings(); };
 ui.setInvertY.onchange = () => { settings.invertY = ui.setInvertY.checked; saveSettings(); };
 ui.setScale.oninput = () => { settings.renderScale = +ui.setScale.value; ui.scaleVal.textContent = settings.renderScale.toFixed(2); saveSettings(); applySettings(); };
+if (ui.setFpsCap) {
+  ui.setFpsCap.value = String(settings.fpsCap || 0);
+  ui.setFpsCap.onchange = () => { settings.fpsCap = +ui.setFpsCap.value; saveSettings(); };
+}
 ui.setCrossSize.oninput = () => { settings.crossLen = +ui.setCrossSize.value; ui.crossSizeVal.textContent = settings.crossLen; saveSettings(); applySettings(); };
 ui.setCrossThick.oninput = () => { settings.crossThick = +ui.setCrossThick.value; ui.crossThickVal.textContent = settings.crossThick; saveSettings(); applySettings(); };
 ui.setCrossColor.oninput = () => { settings.crossColor = ui.setCrossColor.value; saveSettings(); applySettings(); };
@@ -1578,7 +1589,7 @@ ui.setKillfeed.onchange = () => { settings.killfeed = ui.setKillfeed.checked; sa
 ui.btnResetSettings.onclick = () => {
   localStorage.removeItem('sp_settings');
   Object.assign(settings, { sensitivity: 1.0, fov: 74, volume: 0.8, showTracers: true, showDmg: true, showFps: false,
-    adsSens: 0.5, invertY: false, renderScale: 1.0, crossLen: 10, crossThick: 2, crossColor: '#d9f0ff', crossDot: true,
+    adsSens: 0.5, invertY: false, renderScale: 1.0, fpsCap: 0, crossLen: 10, crossThick: 2, crossColor: '#d9f0ff', crossDot: true,
     dmgSize: 1.75, hpBars: true, killfeed: true });
   syncSettingsUI(); saveSettings();
 };
