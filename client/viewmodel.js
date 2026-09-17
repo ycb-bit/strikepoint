@@ -266,7 +266,8 @@ export function buildAvatar(teamMat) {
   const torso = new THREE.Group(); torso.position.y = 0.95;
   // torso + gear
   const body = new THREE.Mesh(BOX, teamMat); body.scale.set(0.56, 0.62, 0.34); body.name = 'torso';
-  const vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.07, 0.01); vest.scale.set(0.60, 0.44, 0.40);
+  // slim plate carrier: covers the chest front but leaves the body colorway visible
+  const vest = new THREE.Mesh(BOX, M.vest); vest.position.set(0, 0.06, 0.02); vest.scale.set(0.40, 0.40, 0.40);
   const pack = new THREE.Mesh(BOX, M.grip); pack.position.set(0, 0.07, 0.26); pack.scale.set(0.42, 0.40, 0.14);
   const belt = new THREE.Mesh(BOX, M.boots); belt.position.y = -0.29; belt.scale.set(0.58, 0.09, 0.36);
   // head + helmet (parented to torso so crouch carries it)

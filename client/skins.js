@@ -7,12 +7,20 @@ import { loadProfile, levelFor } from './profile.js';
 
 export const SKINS = [
   { id: 'default',  name: 'Standard',   level: 1,  body: null,      accent: 0x3a3f46 }, // null = team color
-  { id: 'arctic',   name: 'Arctic',     level: 2,  body: 0xd8dee6,  accent: 0x2e3a46 },
-  { id: 'desert',   name: 'Desert Fox', level: 3,  body: 0xc2a15e,  accent: 0x5e4a26 },
-  { id: 'olive',    name: 'Woodland',   level: 5,  body: 0x5a6b46,  accent: 0x2e3626 },
-  { id: 'urban',    name: 'Urban Gray', level: 7,  body: 0x6d7681,  accent: 0x22262b },
-  { id: 'crimson',  name: 'Crimson',    level: 10, body: 0x9a3226,  accent: 0x38100c },
+  { id: 'arctic',   name: 'Arctic',     level: 2,  body: 0xe8eef6,  accent: 0x27435c },
+  { id: 'desert',   name: 'Desert Fox', level: 3,  body: 0xd9b36a,  accent: 0x6b4e1f },
+  { id: 'olive',    name: 'Woodland',   level: 5,  body: 0x74875a,  accent: 0x33402a },
+  { id: 'urban',    name: 'Urban Gray', level: 7,  body: 0x8b95a1,  accent: 0x2b323b },
+  { id: 'crimson',  name: 'Crimson',    level: 10, body: 0xd23c2a,  accent: 0x4a120c },
 ];
+
+// per-channel glow so colors read even in dim map lighting
+function glow(hex, k) {
+  const r = Math.min(255, ((hex >> 16) & 255) * k) | 0;
+  const g = Math.min(255, ((hex >> 8) & 255) * k) | 0;
+  const b = Math.min(255, (hex & 255) * k) | 0;
+  return (r << 16) | (g << 8) | b;
+}
 
 const KEY = 'sp_skin';
 
@@ -35,8 +43,8 @@ export function skinMaterials(id, teamBodyMat) {
   if (!matCache.has(key)) {
     matCache.set(key, {
       body: s.body === null ? teamBodyMat
-        : new (teamBodyMat.constructor)({ color: s.body, emissive: (s.body >> 1) & 0x111111 }),
-      accent: new (teamBodyMat.constructor)({ color: s.accent }),
+        : new (teamBodyMat.constructor)({ color: s.body, emissive: glow(s.body, 0.30) }),
+      accent: new (teamBodyMat.constructor)({ color: s.accent, emissive: glow(s.accent, 0.18) }),
     });
   }
   return matCache.get(key);

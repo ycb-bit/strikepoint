@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { createMap } from '../shared/map.js';
 import { buildAvatar } from './viewmodel.js';
+import { triggerEmote } from './emotes.js';
 
 let renderer = null, scene = null, camera = null;
 let meshes = [], bots = [], mapName = null, active = false, ang = 0;
@@ -184,8 +185,9 @@ export function renderBackdrop(dt, w, h) {
   camera.position.set(heroCenter.x + Math.cos(ang) * r, 2.1, heroCenter.z + Math.sin(ang) * r);
   camera.lookAt(heroCenter.x, 1.0, heroCenter.z);
   // hero: faces the camera, subtle breathing + weapon held
+  // model faces -Z: to look TOWARD the camera, yaw = atan2(dx, dz) + PI
   if (hero) {
-    hero.rotation.y = Math.atan2(camera.position.x - heroCenter.x, camera.position.z - heroCenter.z);
+    hero.rotation.y = Math.atan2(camera.position.x - hero.position.x, camera.position.z - hero.position.z) + Math.PI;
     hero.userData.torso.position.y = 0.95 + Math.sin(performance.now() / 700) * 0.012;
   }
 
@@ -245,6 +247,21 @@ export function setBackdropTeam(team) {
   hero.userData.body.material = mat;
   hero.userData.helmet.material = mat;
 }
+let heroSkinMats = null;
+function applyHeroSkinMats() {
+  if (!heroSkinMats) {
+    heroSkinMats = {
+      body: new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      accent: new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    };
+  }
+  const u = hero.userData;
+  u.body.material = heroSkinMats.body;
+  u.helmet.material = heroSkinMats.body;
+  u.vest.material = heroSkinMats.accent;
+  if (u.legL && u.legL.children[0]) u.legL.children[0].material = heroSkinMats.accent;
+  if (u.legR && u.legR.children[0]) u.legR.children[0].material = heroSkinMats.accent;
+}
 // apply a skin colorway to the lobby hero (colors arrive as hex ints)
 export function setBackdropSkin(bodyHex, accentHex) {
   if (!hero) return;
@@ -253,23 +270,20 @@ export function setBackdropSkin(bodyHex, accentHex) {
     hero.userData.body.material = mat;
     hero.userData.helmet.material = mat;
   } else {
-    if (!heroSkinMats) {
-      heroSkinMats = {
-        body: new THREE.MeshLambertMaterial({ color: 0xffffff }),
-        accent: new THREE.MeshLambertMaterial({ color: 0xffffff }),
-      };
-    }
+    applyHeroSkinMats();
     heroSkinMats.body.color.setHex(bodyHex);
-    heroSkinMats.body.emissive.setHex((bodyHex >> 1) & 0x111111);
+    heroSkinMats.body.emissive.setHex(glowHex(bodyHex, 0.32));
     heroSkinMats.accent.color.setHex(accentHex);
-    hero.userData.body.material = heroSkinMats.body;
-    hero.userData.helmet.material = heroSkinMats.body;
-    hero.userData.vest.material = heroSkinMats.accent;
-    hero.userData.legL.children[0].material = heroSkinMats.accent;
-    hero.userData.legR.children[0].material = heroSkinMats.accent;
+    heroSkinMats.accent.emissive.setHex(glowHex(accentHex, 0.18));
   }
 }
-let heroSkinMats = null;
+// per-channel glow so colorways read in dim map lighting
+function glowHex(hex, k) {
+  const r = Math.min(255, ((hex >> 16) & 255) * k) | 0;
+  const g = Math.min(255, ((hex >> 8) & 255) * k) | 0;
+  const b = Math.min(255, (hex & 255) * k) | 0;
+  return (r << 16) | (g << 8) | b;
+}
 export function ensureHero() {
   if (hero) return;
   const { grp } = buildAvatar(heroMats.t);
@@ -278,3 +292,5 @@ export function ensureHero() {
   hero = grp;
 }
 export function setBackdropActive(v) { active = v; if (v) ensureHero(); }
+// lobby gestures: the hero plays the same arm animations as in-game avatars
+export function emoteHero(kind) { if (hero) triggerEmote(hero, kind); }

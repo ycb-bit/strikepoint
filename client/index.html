@@ -2,12 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Strikepoint</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="selfPtr"></div>
 
 <!-- ===== MENU (hub layout: hero center, panels on sides) ===== -->
 <div id="menu" class="screen">
@@ -39,6 +44,7 @@
       <b id="heroName">OPERATOR</b>
       <span id="heroTeam">T ERRORISTS</span>
       <div id="skinRow" class="skin-row"></div>
+      <div class="hero-emote-hint">F wave · G point · V salute · H taunt · B 👍</div>
     </div>
   </div>
 

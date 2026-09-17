@@ -1,5 +1,6 @@
 // Strikepoint client — WebSocket networking + input batching.
-// Sends input at ~30Hz (batched), receives snapshots (~15Hz), applies interpolation.
+// Sends input at ~45Hz (batched, change-driven), receives snapshots (~15Hz),
+// applies snapshot-rate-aware interpolation (main.js).
 
 export class Net {
   constructor(onMsg) {
@@ -46,7 +47,7 @@ export class Net {
         this.send({ t: 'action', a: { k: 'input', i } });
         this.lastSent = { ...i };
       }
-    }, 33);
+    }, 22);
   }
 
   stopSending() {

@@ -9,6 +9,7 @@ import { WEAPONS, TEAM, MAX_PLAYERS, PLAYER_EYE, MOVE_SPEED, PLAYER_RADIUS, PLAY
 import { movePlayer, trySlide } from '../shared/sim.js';
 import { WEAPONS as W } from '../shared/constants.js';
 import { Net } from './net.js';
+import { TOUCH_ENABLED, setTouchVisible, applyTouch, takeLookDelta, setTouchSens, consumeReloadPulse, onEmotePressed, nextEmote } from './touch.js';
 import { buildViewmodel, buildAvatar, buildNameLabel, setAvatarWeapon, setViewmodelWeapon, VIEWMODEL, updateViewmodel, startReloadAnim, setViewmodelVisible, muzzleFlash } from './viewmodel.js';
 import { createAnimator } from './avatarAnim.js';
 import { initFx, spawnImpact, spawnBlood, spawnDamageNumber, updateFx } from './fx.js';
@@ -17,7 +18,7 @@ import { createMinimap } from './minimap.js';
 import { triggerEmote, updateEmotes } from './emotes.js';
 import { loadProfile, levelFor, rankName, recordMatch } from './profile.js';
 import { SKINS, getSelectedSkin, setSelectedSkin, skinById, isSkinUnlocked, skinMaterials } from './skins.js';
-import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin } from './backdrop.js';
+import { initBackdrop, setBackdropMap, setBackdropActive, renderBackdrop, setBackdropTeam, setBackdropSkin, emoteHero } from './backdrop.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- DOM ----------
@@ -87,7 +88,9 @@ const canvas = $('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 initBackdrop(renderer);
 function applyRenderScale() {
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * settings.renderScale);
+  // small screens (phones) get a free perf boost automatically
+  const autoScale = Math.min(innerWidth, innerHeight) < 500 ? 0.7 : 1;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * settings.renderScale * autoScale);
   renderer.setSize(innerWidth, innerHeight);
 }
 applyRenderScale();
@@ -445,6 +448,20 @@ function showKillConfirm(head) {
   ui.confirm.classList.add('pop');
 }
 
+// keep a small HUD pointer where MY OWN body is (helps touch players see the
+// position their teammates see — useful when emoting)
+function positionSelfName() {
+  const el = document.getElementById('selfPtr');
+  if (!el) return;
+  const mine = inRoom ? worldPlayers.get(myId) : null;
+  if (!mine || !mine.grp) { el.style.display = 'none'; return; }
+  tmpV.set(mine.grp.position.x, mine.grp.position.y + 0.4, mine.grp.position.z).project(camera);
+  if (tmpV.z > 1) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.style.left = ((tmpV.x * 0.5 + 0.5) * innerWidth) + 'px';
+  el.style.top = ((-tmpV.y * 0.5 + 0.5) * innerHeight) + 'px';
+}
+
 // ---------- net ----------
 const net = new Net(onMsg);
 net.startSending();
@@ -468,7 +485,7 @@ function onMsg(m) {
       ui.menu.classList.add('hidden');
       ui.hud.classList.remove('hidden');
       if (m.kind === 'custom') showLobby();
-      else try { controls.lock(); } catch {}
+      else if (!TOUCH_ENABLED) { try { controls.lock(); } catch {} }
       net.startSending();
       break;
     case 'created':
@@ -552,7 +569,17 @@ function applyState(m) {
           grp.userData.legR.children[0].material = sm.accent;
         }
         wp.animator = createAnimator(grp);
-        if (p.n) grp.add(buildNameLabel(p.n));
+        if (p.n) {
+          if (p.id === myId) {
+            // my own avatar is invisible (first-person) but keeps its sprite:
+            // we track it manually so the HUD can point at it (chat arrows etc.)
+            const selfName = buildNameLabel(p.n);
+            selfName.visible = false;
+            grp.add(selfName);
+          } else {
+            grp.add(buildNameLabel(p.n));
+          }
+        }
         setAvatarWeapon(grp, p.w);
         scene.add(grp);
         wp.grp = grp;
@@ -711,8 +738,9 @@ function handleEvent(ev) {
         if (wp && wp.grp) triggerEmote(wp.grp, ev.e);
         playSound('emote', ev.x, ev.z);
       } else {
-        const me = worldPlayers.get(myId);
-        void me; // my own arms are the viewmodel — no gesture on self
+        // my echo: in the lobby my arms ARE visible (the hub hero) — play it there
+        if (lobbyOpen) emoteHero(ev.e);
+        playSound('emote');
       }
       break;
     }
@@ -757,11 +785,19 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Digit1' && mySlots.primary) net.action({ k: 'slot', s: 'primary' });
   if (e.code === 'Digit2' && mySlots.secondary) net.action({ k: 'slot', s: 'secondary' });
   if (e.code === 'Digit3') net.action({ k: 'slot', s: 'melee' });
-  // emotes: F wave, G point, V salute, B thumb (B only outside buy menu), H taunt
-  if (!e.repeat && inRoom && alive && !menuOpen()) {
-    const EMOTE_KEYS = { KeyF: 'wave', KeyG: 'point', KeyV: 'salute', KeyH: 'taunt' };
-    if (EMOTE_KEYS[e.code]) net.action({ k: 'emote', e: EMOTE_KEYS[e.code] });
-    if (e.code === 'KeyB' && gameMode !== 'defuse') net.action({ k: 'emote', e: 'thumbs' });
+  // emotes: F wave, G point, V salute, H taunt, B thumbs — also work in the lobby
+  const typingSomewhere = document.activeElement &&
+    (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+  if (!e.repeat && inRoom && !typingSomewhere) {
+    if (lobbyOpen) {
+      // in the lobby the buy menu can't be open, so every key is free
+      const LOBBY_EMOTE = { KeyF: 'wave', KeyG: 'point', KeyV: 'salute', KeyH: 'taunt', KeyB: 'thumbs' };
+      if (LOBBY_EMOTE[e.code]) net.action({ k: 'emote', e: LOBBY_EMOTE[e.code] });
+    } else if (gameMode !== 'defuse' && alive && !menuOpen()) {
+      const EMOTE_KEYS = { KeyF: 'wave', KeyG: 'point', KeyV: 'salute', KeyH: 'taunt' };
+      if (EMOTE_KEYS[e.code]) net.action({ k: 'emote', e: EMOTE_KEYS[e.code] });
+      if (e.code === 'KeyB') net.action({ k: 'emote', e: 'thumbs' });
+    }
   }
   if (e.code === 'Escape') {
     if (buyOpen) toggleBuy(false);
@@ -777,12 +813,14 @@ addEventListener('keyup', (e) => {
 });
 
 function reloadDurFor(w) { return ((WEAPONS[w] || WEAPONS.knife).reload || 2.2); }
+// touch: while the RUN toggle is on and you push forward hard, treat as sprint
+function joySprintBoost() { return !!(document.getElementById('tSprint')?.classList.contains('press')); }
 
 let mouseDown = false;
 addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     mouseDown = true;
-    if (inRoom && !controls.isLocked && !menuOpen()) { try { controls.lock(); } catch {} }
+    if (!TOUCH_ENABLED && inRoom && !controls.isLocked && !menuOpen()) { try { controls.lock(); } catch {} }
   }
   if (e.button === 2) zooming = true;
 });
@@ -804,10 +842,13 @@ document.addEventListener('mousemove', (e) => {
 
 function readInput(dt) {
   if (!controls.isLocked || menuOpen()) {
-    input.mx = 0; input.mz = 0; input.jump = false; input.fire = false; input.zoom = false;
-    input.sprint = false; input.slide = false; input.crouch = false;
-    net.pushInput({ ...input });
-    return;
+    // touch devices have no pointer lock — keep reading while in a room
+    if (!(TOUCH_ENABLED && inRoom) || menuOpen()) {
+      input.mx = 0; input.mz = 0; input.jump = false; input.fire = false; input.zoom = false;
+      input.sprint = false; input.slide = false; input.crouch = false;
+      net.pushInput({ ...input });
+      return;
+    }
   }
   const fwd = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
   const right = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
@@ -819,6 +860,22 @@ function readInput(dt) {
   input.crouch = crouchHeld;   // hold to crouch; tap while sprinting = slide
   // slide: pulse the flag for ~120ms so the server registers the edge
   input.slide = performance.now() < slideHoldUntil;
+  // ---- touch merge: joystick/buttons fold into the same input object
+  if (TOUCH_ENABLED) {
+    applyTouch(input);
+    input.sprint = input.sprint || (input.mz > 0.55 && joySprintBoost());
+    zooming = !!input.zoom;   // touch scope toggle drives the camera FOV
+    if (consumeReloadPulse()) { net.action({ k: 'reload' }); startReloadAnim(reloadDurFor(myW) * 1000); reloadAnimUntil = performance.now() + reloadDurFor(myW) * 1000; }
+    // look drag: same euler path the invert-Y handler uses
+    const { dx, dy } = takeLookDelta();
+    if (dx || dy) {
+      _mlEuler.setFromQuaternion(camera.quaternion);
+      _mlEuler.y -= dx * 0.0022 * settings.sensitivity;
+      _mlEuler.x -= dy * 0.0022 * settings.sensitivity * (settings.invertY ? -1 : 1);
+      _mlEuler.x = Math.max(-PI_2 + 0.01, Math.min(PI_2 - 0.01, _mlEuler.x));
+      camera.quaternion.setFromEuler(_mlEuler);
+    }
+  }
   const d = camera.getWorldDirection(new THREE.Vector3());
   input.yaw = Math.atan2(-d.x, -d.z);
   input.pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
@@ -915,21 +972,29 @@ function frame() {
     }
   } else {
     for (const [, wp] of worldPlayers) if (wp.hpEl) { releaseHpBar(wp.hpEl); wp.hpEl = null; }
-  }
-
-  // interpolate avatars
-  for (const [id, wp] of worldPlayers) {
+  }    // interpolate avatars
+    for (const [id, wp] of worldPlayers) {
     if (!wp.grp) continue;
-    wp.lerpT = Math.min(1, wp.lerpT + dt * 10);
+    // interpolation tuned to the snapshot rate: snapshots arrive every
+    // SNAPSHOT_MS, so the blend toward each new sample should take about that
+    // long (+ a little buffer for network jitter). The old fixed ~100ms ramp
+    // finished early, making players visibly stall between snapshots.
+    wp.lerpT = Math.min(1, wp.lerpT + dt * (1000 / SNAPSHOT_MS));
     const t = wp.lerpT;
+    const ease = t * t * (3 - 2 * t);   // smoothstep: fast start, soft landing
     wp.grp.position.set(
-      wp.lerpFrom.x + (wp.x - wp.lerpFrom.x) * t,
-      wp.lerpFrom.y + (wp.y - wp.lerpFrom.y) * t,
-      wp.lerpFrom.z + (wp.z - wp.lerpFrom.z) * t
+      wp.lerpFrom.x + (wp.x - wp.lerpFrom.x) * ease,
+      wp.lerpFrom.y + (wp.y - wp.lerpFrom.y) * ease,
+      wp.lerpFrom.z + (wp.z - wp.lerpFrom.z) * ease
     );
     const moved2 = (wp.x - wp.px) ** 2 + (wp.z - wp.pz) ** 2;
     wp.px = wp.x; wp.pz = wp.z;
-    wp.grp.rotation.y = wp.yaw;     // no +PI: visor/barrel already point -Z
+    // yaw also steps with snapshots — ease it too, otherwise heads snap-snapping
+    // (shortest arc so a yaw wrap from 3.1 to -3.1 doesn't spin the long way)
+    let dyaw = wp.yaw - (wp.yawShown ?? wp.yaw);
+    dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    wp.yawShown = (wp.yawShown ?? wp.yaw) + dyaw * ease;
+    wp.grp.rotation.y = wp.yawShown;   // no +PI: visor/barrel already point -Z
     // --- death animation: ease-out fall with a little bounce, instead of a stiff tip-over
     if (wp.al) { wp.deadT = null; wp.grp.rotation.z = 0; }
     else {
@@ -992,6 +1057,7 @@ function frame() {
   renderer.clearDepth();
   renderer.render(vmScene, vmCamera);
   renderer.autoClear = true;
+  positionSelfName();
 
   // menu backdrop: orbit the selected map while the menu is up
   const menuUp = !ui.menu.classList.contains('hidden');
@@ -1001,6 +1067,9 @@ function frame() {
     setBackdropMap(sel || 'arena');
     renderBackdrop(dt, innerWidth, innerHeight);
   }
+
+  // touch overlay: visible in-game only (not menus/lobby)
+  setTouchVisible(TOUCH_ENABLED && inRoom && !lobbyOpen && menuUp === false);
 }
 frame();
 
@@ -1435,7 +1504,7 @@ function syncSettingsUI() {
   applySettings();
 }
 ui.btnSettings.onclick = () => { ui.settingsBox.classList.toggle('hidden'); };
-ui.setSens.oninput = () => { settings.sensitivity = +ui.setSens.value; ui.sensVal.textContent = settings.sensitivity.toFixed(2); saveSettings(); };
+ui.setSens.oninput = () => { settings.sensitivity = +ui.setSens.value; ui.sensVal.textContent = settings.sensitivity.toFixed(2); saveSettings(); setTouchSens(settings.sensitivity); };
 ui.setFov.oninput = () => { settings.fov = +ui.setFov.value; ui.fovVal.textContent = settings.fov; saveSettings(); };
 ui.setVol.oninput = () => { settings.volume = +ui.setVol.value; ui.volVal.textContent = settings.volume.toFixed(2); saveSettings(); };
 ui.setTracers.onchange = () => { settings.showTracers = ui.setTracers.checked; saveSettings(); };
@@ -1568,6 +1637,10 @@ function applySkinToHero() {
 renderSkinRow();
 applySkinToHero();
 
+// touch: emote button cycles gestures; sensitivity follows the slider
+onEmotePressed(() => { net.action({ k: 'emote', e: nextEmote() }); });
+setTouchSens(settings.sensitivity);
+
 // ---------- lobby ready + chat ----------
 let iAmReady = false;
 ui.btnLobbyReady.onclick = () => {
@@ -1585,6 +1658,9 @@ function sendChat() {
 ui.btnChatSend.onclick = sendChat;
 ui.chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.stopPropagation(); sendChat(); } });
 function addChat(el, from, text, sys) {
+  // chat history lives per-room: a stale log from your last match would
+  // otherwise still be sitting there when you join the next one
+  if (el !== ui.gameChatLog) el.innerHTML = '';
   const d = document.createElement('div');
   d.innerHTML = sys ? `<span class="c-sys">${text}</span>` : `<span class="c-from">${from}:</span> ${text}`;
   el.appendChild(d);

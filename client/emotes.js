@@ -19,8 +19,8 @@ function makeBubble(text) {
   const el = document.createElement('div');
   el.className = 'emote-bubble';
   el.textContent = text;
-  const hud = document.getElementById('hud');
-  if (hud) hud.appendChild(el);
+  // body (not #hud): bubbles must also work in the lobby, where #hud is hidden
+  document.body.appendChild(el);
   return el;
 }
 

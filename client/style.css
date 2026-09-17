@@ -114,6 +114,48 @@ button.small { font-size: 12px; padding: 6px; }
   border-radius: 8px; animation: embob 1s ease-in-out infinite alternate; }
 @keyframes embob { from { margin-top: 0; } to { margin-top: -6px; } }
 
+.hero-emote-hint { margin-top: 6px; font-size: 10px; letter-spacing: 1px; color: rgba(221,227,234,.55);
+  text-shadow: 0 1px 4px #000; }
+
+/* ---- touch controls (phones/tablets) ---- */
+#touchUI { position: fixed; inset: 0; z-index: 60; pointer-events: none; display: none; }
+#touchUI:not(.hidden) { display: block; }
+#touchUI.portrait::before { content: '⟳ Rotate to landscape'; position: absolute; top: 42%; left: 50%;
+  transform: translate(-50%,-50%); font-size: 15px; letter-spacing: 1px; color: #cfd8e3;
+  background: rgba(9,12,16,.85); padding: 10px 18px; border-radius: 10px; border: 1px solid #2e3945; }
+#joyBase { position: fixed; left: 70px; bottom: 90px; width: 140px; height: 140px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.25); background: rgba(12,16,22,.35); pointer-events: none; opacity: 0;
+  transition: opacity .15s; }
+#joyBase.on { opacity: 1; }
+#joyKnob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(232,163,61,.55); border: 2px solid rgba(255,255,255,.5); transform: translate(-50%,-50%);
+  margin: -26px 0 0 -26px; }
+.tbtn { position: fixed; z-index: 61; pointer-events: auto; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 2px solid rgba(255,255,255,.28); background: rgba(12,16,22,.42);
+  color: #dde3ea; font-size: 19px; font-weight: 700; width: 58px; height: 58px;
+  -webkit-tap-highlight-color: transparent; touch-action: none; user-select: none; }
+.tbtn.big { width: 84px; height: 84px; font-size: 26px; right: 26px; bottom: 92px;
+  border-color: rgba(232,163,61,.6); background: rgba(120,60,18,.35); }
+.tbtn.press { background: rgba(232,163,61,.5); border-color: #e8a33d; }
+.tbtn.small { width: 52px; height: 52px; font-size: 12px; letter-spacing: 1px; }
+#tJump { right: 128px; bottom: 66px; }
+#tCrouch { right: 30px; bottom: 196px; }
+#tReload { right: 118px; bottom: 176px; }
+#tScope { right: 200px; bottom: 130px; }
+#tUse { right: 196px; bottom: 44px; }
+#tSprint { left: 24px; top: 96px; }
+#tEmote { right: 24px; top: 96px; }
+#lookHint { position: fixed; right: 30%; top: 55%; font-size: 10px; letter-spacing: 2px;
+  color: rgba(221,227,234,.4); border: none; background: none; pointer-events: none; }
+
+/* self position pointer (touch aid) */
+#selfPtr { position: fixed; z-index: 30; transform: translate(-50%, -50%); display: none;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid rgba(232,163,61,.85); background: radial-gradient(circle, rgba(232,163,61,.28), transparent 65%);
+  pointer-events: none; }
+#selfPtr::after { content: 'YOU'; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  font-size: 9px; letter-spacing: 1px; color: #ffd9a0; font-weight: 700; }
+
 /* ---- Fortnite/PUBG-style hub: side rails + open 3D center ---- */
 #menu { justify-content: space-between; align-items: stretch; padding: 26px 30px; background: none; }
 #menu::before { content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -356,3 +398,15 @@ button.small { font-size: 12px; padding: 6px; }
 }
 #scope .lh { position: absolute; left: 0; right: 0; top: 50%; height: 1.5px; background: #000; }
 #scope .lv { position: absolute; top: 0; bottom: 0; left: 50%; width: 1.5px; background: #000; }
+
+/* ---- small screens: compact hub rails so everything fits beside the hero ---- */
+@media (max-width: 760px) {
+  #menu { padding: 10px; }
+  .hub-rail { width: 46%; min-width: 148px; gap: 7px; padding: 10px 12px; }
+  .hub-logo { font-size: 20px; }
+  .hero-tag b { font-size: 15px; }
+  .hero-emote-hint { display: none; }
+  .mode-tile b, .map-tile b { font-size: 12px; }
+  .hub-right .big-play { font-size: 14px !important; padding: 10px !important; }
+  .hub-rail .rail-btns button { padding: 6px 8px; font-size: 13px; }
+}
