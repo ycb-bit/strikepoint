@@ -122,7 +122,7 @@ function buildFor(name) {
 // pass 3: render the hero sharp at full res on top
 // Cost: two 512-wide targets, no depth textures — a fraction of one SSAO pass.
 let rtA = null, rtB = null, quadScene = null, quadCam = null, blurMat = null, compMat = null;
-const RT_W = 512;
+const RT_W = 800;   // was 512 — higher-res plate keeps the map recognizable behind the hero
 let lastEnv = null, pendingEnv = null;
 void compMat; void pendingEnv;
 
