@@ -10,6 +10,17 @@ export function loadProfile() {
   catch { return { ...DEFAULTS }; }
 }
 
+// Give new players 5000 starter credits so they can immediately try the store.
+// The flag `starterGranted` prevents double-granting on subsequent loads.
+export function ensureStarterCredits() {
+  const p = loadProfile();
+  if (!p.starterGranted) {
+    p.credits = (p.credits || 0) + 5000;
+    p.starterGranted = true;
+    saveProfile(p);
+  }
+}
+
 export function saveProfile(p) { localStorage.setItem(KEY, JSON.stringify(p)); }
 
 export function levelFor(xp) {

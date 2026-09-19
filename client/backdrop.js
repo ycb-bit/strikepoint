@@ -171,6 +171,10 @@ function blurToScreen() {
   renderer.render(quadScene, quadCam);
 }
 
+// ---- idle emote scheduler (hero plays a random emote every ~12s) ----
+let nextIdleEmote = 0;
+const IDLE_EMOTES = ['wave', 'salute', 'thumbs', 'point', 'taunt'];
+
 export function renderBackdrop(dt, w, h) {
   if (!renderer || !active) return;
   frames += 1; void frames;
@@ -185,9 +189,11 @@ export function renderBackdrop(dt, w, h) {
   if (inspect.blend > 0.01 && nowMs - inspect.lastInput > 2500) inspect.on = false;
   inspect.blend += ((inspect.on ? 1 : 0) - inspect.blend) * Math.min(1, dt * 4);
   const b = inspect.blend;
-  const az = ang * (1 - b) + inspect.az * b;            // azimuth
-  const el = 0.34 * (1 - b) + inspect.el * b;           // elevation
-  const r = 6.2 * (1 - b) + inspect.dist * b;           // radius
+  // Camera floats on a gentle figure-8 lissajous in addition to the main orbit
+  const camDrift = Math.sin(nowMs / 9000) * 0.04;
+  const az = (ang + camDrift) * (1 - b) + inspect.az * b;
+  const el = (0.34 + Math.sin(nowMs / 7400) * 0.025) * (1 - b) + inspect.el * b;
+  const r = (6.2 + Math.sin(nowMs / 5200) * 0.18) * (1 - b) + inspect.dist * b;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   camera.position.set(
@@ -195,14 +201,37 @@ export function renderBackdrop(dt, w, h) {
     1.0 + Math.sin(el) * r,
     heroCenter.z + Math.sin(az) * Math.cos(el) * r
   );
-  camera.lookAt(heroCenter.x, 1.0, heroCenter.z);
+  camera.lookAt(heroCenter.x, 1.0 + Math.sin(nowMs / 4800) * 0.06, heroCenter.z);
   // hero: faces the camera during the cinematic orbit; in inspect mode the
   // camera does the moving (turntable), so the pose stays world-fixed
   if (hero) {
     if (b < 0.5) {
       hero.rotation.y = Math.atan2(camera.position.x - hero.position.x, camera.position.z - hero.position.z) + Math.PI;
     }
-    hero.userData.torso.position.y = 0.95 + Math.sin(nowMs / 700) * 0.012;
+    const t = nowMs / 1000;
+    const ud = hero.userData;
+    // --- breathing: torso up/down + subtle lean ---
+    if (ud.torso) {
+      ud.torso.position.y = 0.95 + Math.sin(t * 0.9) * 0.014;
+      ud.torso.rotation.x = Math.sin(t * 0.85) * 0.008;
+    }
+    // --- head look-around (smooth, lazy) ---
+    if (ud.head) {
+      ud.head.rotation.y = Math.sin(t * 0.31) * 0.14;
+      ud.head.rotation.x = Math.sin(t * 0.47) * 0.06;
+    }
+    // --- hip weight shift (side-to-side) ---
+    if (ud.hips) {
+      ud.hips.rotation.z = Math.sin(t * 0.75) * 0.025;
+    }
+    // --- arm sway (hanging arms swing slightly) ---
+    if (ud.armL) ud.armL.rotation.z =  0.15 + Math.sin(t * 0.68) * 0.06;
+    if (ud.armR) ud.armR.rotation.z = -0.15 - Math.sin(t * 0.68) * 0.06;
+    // --- occasional idle emote (wave, salute, nod) ---
+    if (!ud.emoting && nowMs > nextIdleEmote) {
+      nextIdleEmote = nowMs + 10000 + Math.random() * 8000;
+      triggerEmote(hero, IDLE_EMOTES[Math.floor(Math.random() * IDLE_EMOTES.length)]);
+    }
   }
 
   // bots wander in lazy circles with synced leg swings

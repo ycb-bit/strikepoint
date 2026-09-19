@@ -16,7 +16,7 @@ import { initFx, spawnImpact, spawnBlood, spawnDamageNumber, updateFx } from './
 import { initHpBars, acquireHpBar, releaseHpBar, positionHpBar, clearHpBars } from './hpbar.js';
 import { createMinimap } from './minimap.js';
 import { triggerEmote, updateEmotes } from './emotes.js';
-import { loadProfile, levelFor, rankName, recordMatch } from './profile.js';
+import { loadProfile, levelFor, rankName, recordMatch, ensureStarterCredits } from './profile.js';
 import { SKINS, getSelectedSkin, setSelectedSkin, skinById, isSkinUnlocked, skinMaterials } from './skins.js';
 import { OP_SKINS, WEAPON_SKINS, NAME_COLORS, owned, equipped, purchase, equip, earnMatchCredits, credits, ownedOutfits, equippedOutfit, equipOutfit, purchaseOutfit } from './shop.js';
 import { OUTFITS } from '../shared/outfits.js';
@@ -1377,15 +1377,20 @@ function hideLobby() {
 }
 function renderLobbyPlayers(list) {
   ui.lobbyCount.textContent = `${list.length}/20`;
+  const isFfaLobby = gameMode === 'ffa';
   const rows = list.map(p => {
     const me = p.id === myId;
     const kickBtn = (isHost && !me && !p.b)
       ? `<button data-kick="${p.id}">kick</button>` : '';
+    // In FFA there are no teams — show only kills/deaths
+    const teamTag = isFfaLobby
+      ? `<span class="tag">${p.k || 0}k / ${p.d || 0}d</span>`
+      : `<span class="tag">${p.tm === 0 ? 'T' : 'CT'} · ${p.k || 0}k/${p.d || 0}d</span>`;
     return `<div class="lob-row ${me ? 'me' : ''}">
       <span>${p.n || p.id}</span>
       ${p.b ? '<span class="tag">BOT</span>' : '<span class="tag">HUMAN</span>'}
       ${p.b ? '' : (p.ready ? '<span class="tag ready">✓ ready</span>' : '<span class="tag">not ready</span>')}
-      <span class="tag">${p.tm === 0 ? 'T' : 'CT'} · ${p.k || 0}k/${p.d || 0}d</span>
+      ${teamTag}
       <span class="spacer"></span>${kickBtn}</div>`;
   }).join('');
   ui.lobbyPlayers.innerHTML = rows;
@@ -1784,6 +1789,7 @@ function applySkinToHero() {
 }
 renderSkinRow();
 applySkinToHero();
+ensureStarterCredits();  // grant 5000 starter credits for new players
 setViewmodelFinish(equipped().weapon);   // shop weapon finish on the viewmodel
 
 // ---------- hub: drag to inspect your operator, wheel/pinch to zoom ----------
@@ -1930,6 +1936,10 @@ function renderShopInner() {
 // leaving the shop (or its item list) puts the hero back in your equipped gear
 // — registered ONCE here, not per render (per-render would stack listeners)
 function restoreShopPreview() {
+  // MUST rebuild the structural outfit first (it may have been swapped during
+  // preview), then paint the skin on top — same order as applySkinToHero.
+  const eqOutfitId = equippedOutfit();
+  setBackdropOutfit(eqOutfitId);
   applySkinToHero();
   setBackdropGunColor(null);
   setViewmodelFinish(equipped().weapon);
