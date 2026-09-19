@@ -92,6 +92,7 @@ button.small { font-size: 12px; padding: 6px; }
 #hitmark span:nth-child(2) { transform: rotate(-45deg) translate(8px,0); }
 #hitmark.head span { background: #ffd24a; box-shadow: 0 0 7px rgba(255,210,70,.95); height: 3px; }
 #hitmark.pop { animation: hm .28s ease-out forwards; }
+#hitmark.friendly span { background: #4ca3ff; box-shadow: 0 0 7px rgba(76,163,255,.8); }
 @keyframes hm { 0% { opacity: 1; transform: translate(-50%,-50%) scale(.7); } 100% { opacity: 0; transform: translate(-50%,-50%) scale(1.5); } }
 #hitDir { position: fixed; left: 50%; top: 50%; width: 0; height: 0; z-index: 6; pointer-events: none; }
 #hitDir span { position: absolute; left: -34px; top: -118px; width: 68px; height: 7px; border-radius: 4px;

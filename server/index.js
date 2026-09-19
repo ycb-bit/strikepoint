@@ -52,6 +52,8 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 const clients = new Map(); // ws -> client info
+const connLog = new Map(); // ip -> { n, first } — DoS hygiene
+const nowMs = () => Date.now();
 
 wss.on('connection', (ws, req) => {
   // basic DoS hygiene: cap simultaneous sockets per remote IP
@@ -109,8 +111,7 @@ wss.on('connection', (ws, req) => {
 
   client.send({ t: 'welcome', id: client.id, maxPlayers: MAX_PLAYERS });
 });
-const connLog = new Map();
-const nowMs = () => Date.now();
+// connLog and nowMs are declared above wss.on
 
 function route(client, m) {
   switch (m.t) {
@@ -159,10 +160,15 @@ function route(client, m) {
       client.send({ t: 'rooms', rooms: roomList() });
       break;
 
-    case 'report':
+    case 'report': {
+      // rate-limit reports: max 1 per 10s per client to prevent log flooding
+      const n = nowMs();
+      if (client.lastReportAt && n - client.lastReportAt < 10_000) break;
+      client.lastReportAt = n;
       console.log(`[report] from ${client.id} (${client.name || 'unnamed'}): ${String(m.msg || '').slice(0, 300)}`);
       client.send({ t: 'report-ok' });
       break;
+    }
 
     case 'ping': client.send({ t: 'pong', ts: typeof m.ts === 'number' ? m.ts : 0 }); break;   // RTT echo
   }

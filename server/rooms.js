@@ -155,7 +155,7 @@ export class Room {
     }
     this.startLoop();
     // tell the client which room + their id (custom-room creator gets host powers)
-    client.send({ t: 'joined', room: this.code, kind: this.kind, id: clientId, host: this.kind === 'custom' && this.owner === clientId });
+    client.send({ t: 'joined', room: this.code, kind: this.kind, id: clientId, host: this.kind === 'custom' && this.owner === clientId, ff: !!this.game.rules?.friendlyFire });
     this.broadcastState();
   }
 
@@ -423,13 +423,14 @@ function tryFormMatch(pref) {
 }
 
 // ---- custom rooms ----
-export function createRoom(client, { bots, map, mode }) {
+export function createRoom(client, { bots, map, mode, rules }) {
   const code = makeCode();
   const mapName = MAP_NAMES.includes(map) ? map : MAP_NAMES[Math.floor(Math.random() * MAP_NAMES.length)];
   const room = new Room({
     code, kind: 'custom', owner: client.id, mapName,
     mode: GAME_MODES.includes(mode) ? mode : 'defuse',
     botCount: Math.max(0, Math.min(18, bots | 0)),
+    rules,
     onEmpty: (c) => console.log(`[rooms] custom room ${c} closed`),
   });
   rooms.set(code, room);

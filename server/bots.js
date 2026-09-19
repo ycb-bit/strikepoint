@@ -9,10 +9,15 @@ import { applyInput, tryPlant, tryDefuse, stopActivity, buyWeapon, setLoadout } 
 const BOT_NAMES = [
   'Vex', 'Moss', 'Havoc', 'Rook', 'Dusty', 'Onyx', 'Juno', 'Kilo',
   'Frost', 'Wren', 'Talon', 'Piper', 'Ash', 'Nova', 'Brick', 'Echo',
-  'Flint', 'Ghost', 'Iris', 'Jinx',
+  'Flint', 'Ghost', 'Iris', 'Jinx', 'Colt', 'Raze', 'Sable', 'Lark',
+  'Drax', 'Hex', 'Zara', 'Pike', 'Quinn', 'Thorn', 'Slate', 'Vale',
+  'Cruz', 'Nyx', 'Rex', 'Viper', 'Blaze', 'Storm', 'Wolf', 'Dusk',
 ];
 
-export function botName(i) { return BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.length ? '2' : ''); }
+export function botName(i) {
+  // avoid suffixed names like 'Vex2' by having enough names for all bots
+  return BOT_NAMES[i % BOT_NAMES.length];
+}
 
 // personality-ish per-bot state
 const botState = new Map();
@@ -132,8 +137,10 @@ function moveAlongPath(g, p, s, dt, out) {
 }
 
 function dmLoadout(g, p) {
-  // dm modes: pick a rifle each (re)spawn — cheap variety
+  // dm modes: pick a rifle at spawn only — NOT every tick (would full-reload mag mid-fight)
   if (g.mode === 'defuse') return;
+  // only apply if not yet alive (first spawn or dead waiting to respawn)
+  if (p.alive) return;
   if (!p.loadout.primary || Math.random() < 0.15) {
     const pick = ['ak', 'm4', 'mp5', 'dmr', 'awp'][(Math.random() * 5) | 0];
     setLoadout(g, p, pick, 'usp');
@@ -144,15 +151,18 @@ function buyPhase(g, p) {
   if (g.phase !== 'freeze' || g.mode !== 'defuse') return;
   const rich = p.money;
   const isT = p.team === TEAM.T;
-  // rifle economy
+  // rifle economy: buy rifle + armor if possible
   if (rich >= (isT ? 2700 : 3100) + 650) {
     buyWeapon(g, p, isT ? 'ak' : 'm4');
     buyWeapon(g, p, 'armor');
   } else if (rich >= 1250 + 650) {
     buyWeapon(g, p, 'mp9');
     buyWeapon(g, p, 'armor');
-  } else if (rich >= 700 && Math.random() < 0.5) {
-    buyWeapon(g, p, 'deagle');
+  } else if (rich >= 700 && p.armor <= 0) {
+    // eco: upgrade pistol or grab armor alone if affordable
+    if (rich >= 700 + 650) { buyWeapon(g, p, 'deagle'); buyWeapon(g, p, 'armor'); }
+    else if (rich >= 650) buyWeapon(g, p, 'armor');
+    else if (rich >= 700) buyWeapon(g, p, 'deagle');
   }
 }
 
@@ -188,6 +198,8 @@ export function botTick(g, p, dt) {
       out.fire = false;
       s.reactUntil = s.reactUntil || Date.now() + 150;
     }
+    // AWP: zoom when at range (gives accuracy bonus)
+    out.zoom = (wName === 'awp' || wName === 'dmr') && dist > 12;
     // combat movement: strafe + close distance with rifles, keep awp range
     if (Date.now() > s.strafeUntil) {
       s.strafeDir = Math.random() < 0.5 ? -1 : 1;
@@ -198,6 +210,8 @@ export function botTick(g, p, dt) {
     const approach = dist > wantDist ? 1 : dist < wantDist * 0.6 ? -0.6 : 0;
     out.mx = Math.max(-1, Math.min(1, cos * s.strafeDir * 0.8 + (-sin) * approach));
     out.mz = Math.max(-1, Math.min(1, -sin * s.strafeDir * 0.8 + (-cos) * approach));
+    // crouch while holding/defending; stand when closing distance
+    out.crouch = approach <= 0 && Math.random() < 0.4;
     // bomb duties override movement
     if (p.activity) { out.mx = 0; out.mz = 0; out.fire = false; }
     applyInput(g, p, out, dt);

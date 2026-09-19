@@ -86,12 +86,14 @@ const settings = Object.assign(
   { sensitivity: 1.0, fov: 74, volume: 0.8, showTracers: true, showDmg: true, showFps: false,
     adsSens: 0.5, invertY: false, renderScale: 1.0, fpsCap: 0,
     crossLen: 10, crossThick: 2, crossColor: '#d9f0ff', crossDot: true,
-    dmgSize: 1.75, hpBars: true, killfeed: true },
+    dmgSize: 1.75, hpBars: true, killfeed: true, shadows: true },
   JSON.parse(localStorage.getItem('sp_settings') || '{}')
 );
 function saveSettings() { localStorage.setItem('sp_settings', JSON.stringify(settings)); }
 const canvas = $('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.shadowMap.enabled = settings.shadows !== false;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 initBackdrop(renderer);
 function applyRenderScale() {
   // small screens (phones) get a free perf boost automatically
@@ -117,6 +119,17 @@ const hemiLight = new THREE.HemisphereLight(0xdfeaf2, 0x54524c, 0.85);
 scene.add(hemiLight);
 const sun = new THREE.DirectionalLight(0xfff2d9, 0.55);
 sun.position.set(30, 60, -20);
+sun.castShadow = true;
+sun.shadow.mapSize.width = 1024;
+sun.shadow.mapSize.height = 1024;
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 150;
+const d = 60;
+sun.shadow.camera.left = -d;
+sun.shadow.camera.right = d;
+sun.shadow.camera.top = d;
+sun.shadow.camera.bottom = -d;
+sun.shadow.bias = -0.001;
 scene.add(sun);
 
 const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth / innerHeight, 0.05, 200);
@@ -139,16 +152,42 @@ addEventListener('resize', () => {
   applyRenderScale();
 });
 
-// shared materials — Lambert for real lighting response, still just colors (no textures)
+function makeNoiseTex(size, baseHex, noiseHex, factor = 0.1) {
+  const cv = document.createElement('canvas');
+  cv.width = size; cv.height = size;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#' + baseHex.toString(16).padStart(6, '0');
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#' + noiseHex.toString(16).padStart(6, '0');
+  for (let i = 0; i < size * size * factor; i++) {
+    const x = Math.random() * size, y = Math.random() * size;
+    const w = Math.random() * 2 + 1;
+    ctx.globalAlpha = Math.random() * 0.4;
+    ctx.fillRect(x, y, w, w);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// shared materials — Lambert for real lighting response
 const lam = (c, opts = {}) => new THREE.MeshLambertMaterial({ color: c, ...opts });
+const lamTex = (c, texOpts) => {
+  const tex = makeNoiseTex(256, c, texOpts.noise || 0x000000, texOpts.factor);
+  if (texOpts.repeat) { tex.repeat.set(texOpts.repeat, texOpts.repeat); }
+  return new THREE.MeshLambertMaterial({ color: c, map: tex, ...texOpts.opts });
+};
+
 const MAT = {
-  floor:  lam(0x6a7480),
+  floor:  lamTex(0x6a7480, { noise: 0x4a5460, factor: 0.15, repeat: 8 }),
   gridLine: lam(0x606a76),
-  wall:   lam(0x8f9ba6),
+  wall:   lamTex(0x8f9ba6, { noise: 0x6f7b86, factor: 0.08, repeat: 4 }),
   wallTop: lam(0xb8c2cb),
-  crate:  lam(0x9c7f56),
-  crateAlt: lam(0x8a7150),
-  crateDk:lam(0x76603f),
+  crate:  lamTex(0x9c7f56, { noise: 0x6c4f26, factor: 0.2 }),
+  crateAlt: lamTex(0x8a7150, { noise: 0x5a4120, factor: 0.2 }),
+  crateDk:lamTex(0x76603f, { noise: 0x46300f, factor: 0.2 }),
   skirt:  lam(0x525c66),
   low:    lam(0x77907e),
   siteA:  lam(0xb08a7d),
@@ -374,6 +413,8 @@ function buildWorld(seed) {
     if (!merged) continue;
     const mesh = new THREE.Mesh(merged, mat);
     mesh.frustumCulled = false; // one big mesh: skip per-chunk culling overhead
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     scene.add(mesh);
     worldMeshes.push(mesh);
   }
@@ -388,6 +429,7 @@ let myId = null;
 let inRoom = false;
 let queuedSelfHeal = null;   // requeue timer: never let "in queue…" hang forever
 let roomKind = null;
+let roomFF = false;
 const worldPlayers = new Map();
 const stateList = new Map();   // id -> latest state row (names for killfeed)
 let phase = 'warmup', phaseEndsAt = 0, round = 0, score = [0, 0];
@@ -419,9 +461,10 @@ let bombMesh = null;
 const minimap = createMinimap(ui.minimap);
 let minimapDots = [];   // bomb / dropped-bomb dots
 
-function showHitmarker(head) {
-  ui.hitmark.classList.remove('pop', 'head');
+function showHitmarker(head, friendly) {
+  ui.hitmark.classList.remove('pop', 'head', 'friendly');
   if (head) ui.hitmark.classList.add('head');
+  if (friendly) ui.hitmark.classList.add('friendly');
   void ui.hitmark.offsetWidth;               // restart CSS animation
   ui.hitmark.classList.add('pop');
 }
@@ -504,6 +547,7 @@ function onMsg(m) {
       inRoom = true;
       roomKind = m.kind;
       roomCode = m.room;
+      roomFF = !!m.ff;
       isHost = !!(m.host);
       if (queuedSelfHeal) { clearTimeout(queuedSelfHeal); queuedSelfHeal = null; }
       ui.menu.classList.add('hidden');
@@ -773,9 +817,15 @@ function handleEvent(ev) {
         if (settings.showDmg) spawnDamageNumber(ev.x, ev.y, ev.z, ev.dmg, ev.head, settings.dmgSize);
         spawnBlood(ev.x, ev.y, ev.z, ev.head);
         hitmarkerUntil = performance.now() + 130;
-        showHitmarker(ev.head);
-        if (ev.head) playDing();
-        else playHit();
+        const target = worldPlayers.get(ev.to);
+        const isFriendly = roomFF && target && target.tm === myTeam && gameMode !== 'ffa';
+        showHitmarker(ev.head, isFriendly);
+        if (ev.head) {
+          playDing();
+          myHsCount++; // tracked for podium
+        } else {
+          playHit();
+        }
       }
       if (ev.to === myId) {
         flashDamage();
@@ -1997,9 +2047,4 @@ ui.btnPodMenu.onclick = () => {
 };
 // count my headshots for the podium
 let myHsCount = 0;
-const _origHandleEvent = handleEvent;
-handleEvent = function (ev) {
-  if (ev.type === 'hit' && ev.by === myId && ev.head) myHsCount++;
-  if (ev.type === 'dmEnd' || (ev.type === 'roundEnd' && phase === 'matchEnd')) { /* podium triggers via phase check */ }
-  _origHandleEvent(ev);
-};
+// Note: handleEvent monkey-patch removed; myHsCount is incremented natively in handleEvent now.

@@ -426,10 +426,10 @@ export function buildAvatar(teamMat, outfitId) {
   // arms: shoulder pivot -> upper arm -> ELBOW pivot -> forearm + hand
   const mkArm = (x) => {
     const shoulder = new THREE.Group(); shoulder.position.set(x, 0.22, 0);
-    const upper = new THREE.Mesh(BOX, teamMat); upper.position.set(0, -0.12, -0.04); upper.scale.set(0.13, 0.30, 0.15);
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.30, 8), teamMat); upper.position.set(0, -0.12, -0.04);
     const elbow = new THREE.Group(); elbow.position.set(0, -0.24, -0.08);
-    const fore = new THREE.Mesh(BOX, teamMat); fore.position.set(0, -0.03, -0.14); fore.scale.set(0.11, 0.12, 0.30);
-    const hand = new THREE.Mesh(BOX, M.skin); hand.position.set(0, -0.03, -0.28); hand.scale.set(0.10, 0.10, 0.12);
+    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.30, 8), teamMat); fore.position.set(0, -0.03, -0.14); fore.rotation.x = Math.PI / 2;
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), M.skin); hand.position.set(0, -0.03, -0.28);
     elbow.add(fore, hand); shoulder.add(upper, elbow);
     // tuck: angle the forearm inward so both hands meet on the rifle grip
     // (hands end up at ~(±0.09, -0.05, -0.29) — measured through the chain),
@@ -454,9 +454,9 @@ export function buildAvatar(teamMat, outfitId) {
   // legs: hip pivot -> thigh -> KNEE pivot -> shin + boot
   const mkLeg = (x) => {
     const hip = new THREE.Group(); hip.position.set(x, 0.62, 0);
-    const thigh = new THREE.Mesh(BOX, teamMat); thigh.position.y = -0.21; thigh.scale.set(0.20, 0.42, 0.24);
+    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.09, 0.42, 8), teamMat); thigh.position.y = -0.21;
     const knee = new THREE.Group(); knee.position.y = -0.42;
-    const shin = new THREE.Mesh(BOX, teamMat); shin.position.y = -0.17; shin.scale.set(0.17, 0.34, 0.20);
+    const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.07, 0.34, 8), teamMat); shin.position.y = -0.17;
     const boot = new THREE.Mesh(BOX, M.boots); boot.position.set(0, -0.33, 0.04); boot.scale.set(0.20, 0.13, 0.30);
     knee.add(shin, boot); hip.add(thigh, knee);
     hip.userData.knee = knee;
@@ -469,6 +469,14 @@ export function buildAvatar(teamMat, outfitId) {
     legLKnee: legL.userData.knee, legRKnee: legR.userData.knee,
   };
   grp.userData = { body, head, helmet, vest, legL, legR, armL, armR, gun, torso, headwear, cloth };
+  
+  grp.traverse((c) => {
+    if (c.isMesh) {
+      c.castShadow = true;
+      c.receiveShadow = true;
+    }
+  });
+  
   return { grp };
 }
 

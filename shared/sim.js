@@ -14,8 +14,7 @@ import { createMap } from './map.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const dist2D = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
-const recoilAccum = new Map(); // playerId -> spray inaccuracy accumulator
-setInterval(() => { for (const k of recoilAccum.keys()) recoilAccum.set(k, Math.max(0, (recoilAccum.get(k) || 0) - 0.55)); }, 150);
+// recoilAccum lives inside each game object — see createGame below
 
 export function createGame(mapName = 'arena', seed = 1337, mode = 'defuse', rules = null) {
   const map = createMap(mapName, seed);
@@ -43,6 +42,9 @@ export function createGame(mapName = 'arena', seed = 1337, mode = 'defuse', rule
     bombSite: null,
     bombCarrier: null,    // player id (defuse only)
     dmEndsAt: 0,
+    // per-game recoil: no cross-room leakage; decayed in tick()
+    recoilAccum: new Map(),
+    recoilDecayAt: 0,
   };
   return g;
 }
@@ -56,7 +58,8 @@ export function addPlayer(g, id, name, opts = {}) {
     x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vy: 0,
     onGround: true,
     hp: 100, armor: 0, helmet: false,
-    stamina: STAMINA_MAX, staminaLock: false, crouching: false, prevCrouch: false,
+    stamina: STAMINA_MAX, staminaLock: false,
+    crouching: false, prevCrouch: false,
     money: ECONOMY.start,
     slotPref: 'secondary',
     kills: 0, deaths: 0,
@@ -75,8 +78,6 @@ export function addPlayer(g, id, name, opts = {}) {
     lastSeenTarget: null,
     // sprint/slide/crouch state
     slideT: 0, slideCd: 0, slideDirX: 0, slideDirZ: 0,
-    stamina: STAMINA_MAX, staminaLock: false,
-    crouching: false, prevCrouch: false,
     loadout: { primary: null, secondary: null },
   };
   g.players.set(id, p);
@@ -88,6 +89,7 @@ export function removePlayer(g, id) {
   if (!p) return;
   if (g.bombCarrier === id) dropBomb(g, p);
   if (g.defuserId === id) { g.defuseProgress = 0; g.defuserId = null; }
+  g.recoilAccum.delete(id);
   g.players.delete(id);
 }
 
@@ -117,7 +119,8 @@ export function startMatch(g) {
     g.round = 1;
     g.phase = 'freeze';
     g.phaseEndsAt = Date.now() + 3000;
-    g.dmEndsAt = Date.now() + (3000 + rulesOf(g).roundTime * 1000 || DM_ROUND_TIME * 1000);
+    const roundMs = (rulesOf(g).roundTime || DM_ROUND_TIME) * 1000;
+    g.dmEndsAt = Date.now() + 3000 + roundMs;
     for (const p of g.players.values()) { giveDefaultLoadout(g, p); spawnPlayer(g, p); }
     g.roundEvents.push({ type: 'note', text: g.mode === 'tdm' ? `TEAM DEATHMATCH — first to ${rulesOf(g).killLimit || TDM_KILL_LIMIT}` : `FREE-FOR-ALL — first to ${rulesOf(g).killLimit || FFA_KILL_LIMIT}` });
   }
@@ -238,6 +241,12 @@ export function plantBomb(g, p, x, z) {
   g.phase = 'planted';
   g.planterId = p.id;
   p.money = Math.min(16000, p.money + ECONOMY.plant);
+  // pay alive T teammates the plant bonus
+  for (const q of g.players.values()) {
+    if (q.id !== p.id && q.team === TEAM.T && q.alive) {
+      q.money = Math.min(16000, q.money + ECONOMY.teamPlantBonus);
+    }
+  }
   g.roundEvents.push({ type: 'plant', x, z, site, by: p.id });
   return true;
 }
@@ -277,7 +286,8 @@ function applyDamage(g, victim, dmg, attackerId, cause, headshot = false) {
     if (g.defuserId === victim.id) { g.defuseProgress = 0; g.defuserId = null; }
     const attacker = attackerId != null ? g.players.get(attackerId) : null;
     const dm = g.mode !== 'defuse';
-    if (attacker && attacker.id !== victim.id && (dm || attacker.team !== victim.team)) {
+    const ff = rulesOf(g).friendlyFire;
+    if (attacker && attacker.id !== victim.id && (dm || ff || attacker.team !== victim.team)) {
       attacker.kills++;
       attacker.money = Math.min(16000, attacker.money + ECONOMY.kill);
       if (g.mode === 'tdm') {
@@ -428,7 +438,21 @@ export function applyInput(g, p, inp, dt) {
 
   // shooting (semi-auto fires on press edge; auto/knife fire while held)
   p.fireCooldown = Math.max(0, p.fireCooldown - dt);
-  if (p.reloadEndsAt && now >= p.reloadEndsAt) p.reloadEndsAt = 0;
+  // reload completion — tick-driven, no setTimeout needed
+  if (p.reloadEndsAt && now >= p.reloadEndsAt) {
+    const rWName = currentWeapon(p);
+    const rSpec = WEAPONS[rWName];
+    if (rSpec && rSpec.ammo !== Infinity) {
+      const am = p.ammo[rWName];
+      if (am) {
+        const need = rSpec.ammo - am.mag;
+        const take = am.reserve === Infinity ? need : Math.min(need, am.reserve);
+        am.mag += take;
+        if (am.reserve !== Infinity) am.reserve -= take;
+      }
+    }
+    p.reloadEndsAt = 0;
+  }
   const wName = currentWeapon(p);
   const auto = WEAPONS[wName] ? WEAPONS[wName].auto !== false : true;
   const wantFire = auto ? p.input.fire : (p.input.fire && !p.prevFire);
@@ -574,9 +598,10 @@ function raycastPlayers(g, shooter, range, yaw = shooter.yaw, pitch = shooter.pi
   const dz = -Math.cos(yaw) * Math.cos(pitch);
   let best = null;
   const ffa = g.mode === 'ffa';
+  const ff = rulesOf(g).friendlyFire;
   for (const q of g.players.values()) {
     if (q === shooter || !q.alive) continue;
-    if (!ffa && q.team === shooter.team) continue; // no friendly fire (except ffa)
+    if (!ffa && !ff && q.team === shooter.team) continue; // no friendly fire unless ff enabled
     const hit = rayVsPlayerBox(ox, oy, oz, dx, dy, dz, q, range);
     if (hit && (!best || hit.dist < best.dist)) best = hit;
   }
@@ -610,10 +635,13 @@ function rayVsPlayerBox(ox, oy, oz, dx, dy, dz, q, range) {
     return tmin;
   };
   const tHead = tryBox(0.22, 0.22, 1.35, 1.75);
-  const tBody = tryBox(0.35, 0.35, 0.0, 1.35);
-  const tLeg = tryBox(0.35, 0.35, 0.0, 0.75);
   if (tHead != null) return { player: q, dist: tHead, head: true, leg: false };
-  if (tBody != null) return { player: q, dist: tBody, head: false, leg: tBody === tLeg && tLeg != null };
+  const tBody = tryBox(0.35, 0.35, 0.0, 1.35);
+  if (tBody != null) {
+    // determine leg zone by where the ray actually hits on the body (y: 0..0.75)
+    const hitY = oy + dy * tBody - q.y;
+    return { player: q, dist: tBody, head: false, leg: hitY <= 0.75 };
+  }
   return null;
 }
 
@@ -625,14 +653,7 @@ export function startReload(g, p) {
   if (!am || am.mag >= spec.ammo) return; // unlimited reserve: reload whenever mag is not full
   p.reloadEndsAt = Date.now() + spec.reload * 1000;
   g.roundEvents.push({ type: 'reload', by: p.id, weapon: wName });
-  setTimeout(() => {
-    const cur = p.ammo[wName];
-    if (!cur) return;
-    const need = spec.ammo - cur.mag;
-    const take = Math.min(need, cur.reserve);
-    cur.mag += take; cur.reserve -= take;
-    if (p.reloadEndsAt && Date.now() >= p.reloadEndsAt) p.reloadEndsAt = 0;
-  }, spec.reload * 1000 + 30);
+  // completion is driven by the reloadEndsAt check in applyInput — no setTimeout needed
 }
 
 export function buyWeapon(g, p, what) {
@@ -665,16 +686,21 @@ export function setLoadout(g, p, primary, secondary) {
     const spec = WEAPONS[primary];
     if (!spec || spec.slot !== 'primary') return { ok: false, err: 'bad primary' };
     p.loadout.primary = primary;
-    p.weapons.primary = primary;
-    p.ammo[primary] = { mag: spec.ammo, reserve: Infinity };
+    // only apply immediately when dead — don't reset ammo mid-fight
+    if (!p.alive) {
+      p.weapons.primary = primary;
+      p.ammo[primary] = { mag: spec.ammo, reserve: Infinity };
+    }
     p.slotPref = 'primary';
   }
   if (secondary != null) {
     const spec = WEAPONS[secondary];
     if (!spec || spec.slot !== 'secondary') return { ok: false, err: 'bad secondary' };
     p.loadout.secondary = secondary;
-    p.weapons.secondary = secondary;
-    p.ammo[secondary] = { mag: spec.ammo, reserve: Infinity };
+    if (!p.alive) {
+      p.weapons.secondary = secondary;
+      p.ammo[secondary] = { mag: spec.ammo, reserve: Infinity };
+    }
   }
   return { ok: true };
 }
@@ -684,6 +710,16 @@ export function setLoadout(g, p, primary, secondary) {
 // (events are generated in applyInput/botTick BEFORE tick runs in the same step).
 export function tick(g, dt) {
   const now = Date.now();
+
+  // decay per-game recoil accumulators (~150ms cadence)
+  if (now >= g.recoilDecayAt) {
+    g.recoilDecayAt = now + 150;
+    for (const [k, v] of g.recoilAccum) {
+      const next = Math.max(0, v - 0.55);
+      if (next === 0) g.recoilAccum.delete(k);
+      else g.recoilAccum.set(k, next);
+    }
+  }
 
   // dm respawns
   if (g.mode !== 'defuse') {
@@ -717,13 +753,14 @@ export function tick(g, dt) {
     g.bombTimer -= dt;
     if (g.bombTimer <= 0) explodeBomb(g);
   } else if (g.phase === 'roundEnd' && now >= g.phaseEndsAt) {
-    if (g.phase !== 'matchEnd') startRound(g);
+    // only start a new round if we haven't already escalated to matchEnd
+    if (g.winner == null) startRound(g);
   }
 
   // inputs already applied by server per player before tick (applyInput per player)
   // bomb dropped pickup handled in applyInput
 
-  // if all Ts dead but bomb planted, nothing else needed (bomb resolves)
+  // if all CTs dead but bomb planted, Ts win immediately
   if (g.mode === 'defuse' && g.phase === 'planted' && alive(g, TEAM.CT) === 0) {
     endRound(g, TEAM.T, 'bomb');
   }
